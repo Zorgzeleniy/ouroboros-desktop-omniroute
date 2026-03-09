@@ -108,6 +108,7 @@ def _prepare_windows_webview_runtime() -> tuple[bool, str]:
     base_dir = pathlib.Path(getattr(sys, "_MEIPASS", pathlib.Path(sys.executable).parent))
     exe_dir = pathlib.Path(sys.executable).parent
     runtime_dir = base_dir / "pythonnet" / "runtime"
+    webview_lib_dir = base_dir / "webview" / "lib"
     py_dll_name = f"python{sys.version_info[0]}{sys.version_info[1]}.dll"
 
     def _unblock_file(path: pathlib.Path) -> None:
@@ -115,6 +116,13 @@ def _prepare_windows_webview_runtime() -> tuple[bool, str]:
             os.remove(f"{path}:Zone.Identifier")
         except OSError:
             pass
+
+    def _unblock_tree(root: pathlib.Path) -> None:
+        if not root.is_dir():
+            return
+        for child in root.rglob("*"):
+            if child.is_file() and child.suffix.lower() in {".dll", ".exe", ".pyd"}:
+                _unblock_file(child)
 
     py_dll_candidates = [
         base_dir / py_dll_name,
@@ -141,12 +149,14 @@ def _prepare_windows_webview_runtime() -> tuple[bool, str]:
 
     _unblock_file(py_dll_path)
     _unblock_file(runtime_dll_path)
+    _unblock_tree(runtime_dll_path.parent)
+    _unblock_tree(webview_lib_dir)
 
     os.environ["PYTHONNET_RUNTIME"] = "netfx"
     os.environ["PYTHONNET_PYDLL"] = str(py_dll_path)
 
     search_dirs = []
-    for candidate in (base_dir, exe_dir, runtime_dir, py_dll_path.parent):
+    for candidate in (base_dir, exe_dir, runtime_dir, runtime_dll_path.parent, py_dll_path.parent, webview_lib_dir):
         candidate_str = str(candidate)
         if candidate.is_dir() and candidate_str not in search_dirs:
             search_dirs.append(candidate_str)

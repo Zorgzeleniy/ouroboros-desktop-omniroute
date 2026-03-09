@@ -11,6 +11,7 @@ if sys.platform == "win32":
     _exe_dir = os.path.dirname(sys.executable)
     _dll_name = f"python{sys.version_info[0]}{sys.version_info[1]}.dll"
     _runtime_dir = os.path.join(_base, "pythonnet", "runtime")
+    _webview_lib_dir = os.path.join(_base, "webview", "lib")
 
     os.environ["PYTHONNET_RUNTIME"] = "netfx"
 
@@ -31,6 +32,14 @@ if sys.platform == "win32":
         except OSError:
             pass
 
+    def _unblock_tree(_root: str) -> None:
+        if not os.path.isdir(_root):
+            return
+        for _dirpath, _dirnames, _filenames in os.walk(_root):
+            for _filename in _filenames:
+                if os.path.splitext(_filename)[1].lower() in {".dll", ".exe", ".pyd"}:
+                    _unblock_file(os.path.join(_dirpath, _filename))
+
     _selected_pydll = None
     for _path in _candidates:
         if os.path.isfile(_path):
@@ -47,9 +56,18 @@ if sys.platform == "win32":
                 break
     if os.path.isfile(_runtime_dll):
         _unblock_file(_runtime_dll)
+        _unblock_tree(os.path.dirname(_runtime_dll))
+    _unblock_tree(_webview_lib_dir)
 
     _search_dirs = []
-    for _path in (_base, _exe_dir, _runtime_dir, os.path.dirname(_selected_pydll) if _selected_pydll else None):
+    for _path in (
+        _base,
+        _exe_dir,
+        _runtime_dir,
+        os.path.dirname(_runtime_dll) if os.path.isfile(_runtime_dll) else None,
+        os.path.dirname(_selected_pydll) if _selected_pydll else None,
+        _webview_lib_dir,
+    ):
         if os.path.isdir(_path) and _path not in _search_dirs:
             _search_dirs.append(_path)
     os.environ["PATH"] = os.pathsep.join(
