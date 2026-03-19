@@ -1,4 +1,4 @@
-# Ouroboros v4.4.0 — Architecture & Reference
+# Ouroboros v4.5.0 — Architecture & Reference
 
 This document describes every component, page, button, API endpoint, and data flow.
 It is the single source of truth for how the system works. Keep it updated.
@@ -179,14 +179,15 @@ Navigation is a left sidebar with 8 pages.
 - **Status badge** (top-right): "Online" (green) / "Thinking..." (amber pulse) / "Reconnecting..." (red).
   Driven by WebSocket connection state and typing events.
 - **Message input**: textarea + send button. Shift+Enter for newline, Enter to send.
-- **Messages**: user bubbles (right, blue-tinted) and assistant bubbles (left, crimson). Assistant messages render markdown.
+- **Messages**: user bubbles (right, blue-tinted), assistant bubbles (left, crimson), and system-summary bubbles (left, amber). Non-user bubbles render markdown.
 - **Timestamps**: smart relative formatting (today: "HH:MM", yesterday: "Yesterday, HH:MM", older: "Mon DD, HH:MM"). Shown on hover.
 - **Progress messages**: background consciousness thinking shown as dimmed bubbles with 💬 prefix.
+- **System summaries**: `direction="system"` entries from `chat.jsonl` are shown in the same timeline with a 📋 label instead of being hidden or treated as user text.
 - **Typing indicator**: animated "thinking dots" bubble appears when the agent is processing.
 - **Persistence**: chat history loaded from server on page load (`/api/chat/history`), survives app restarts. Fallback to sessionStorage.
 - **Empty-chat init**: if neither server history nor sessionStorage has messages, the UI shows a transient assistant bubble: `Ouroboros has awakened`. This is visual-only and is not written to chat history.
 - Messages sent via WebSocket `{type: "chat", content: text}`.
-- Responses arrive via WebSocket `{type: "chat", role: "assistant", content: text, ts: "ISO"}`.
+- Responses arrive via WebSocket `{type: "chat", role: "assistant", content: text, ts: "ISO"}`. On page-load history sync, `/api/chat/history` can also return `role: "system"` entries for internal summaries.
 - Supports slash commands: `/status`, `/evolve`, `/review`, `/bg`, `/restart`, `/panic`.
 
 ### 3.2 Dashboard
@@ -294,7 +295,7 @@ Navigation is a left sidebar with 8 pages.
 | POST | `/api/local-model/stop` | Stop local model server |
 | GET | `/api/local-model/status` | Local model status and readiness |
 | GET | `/api/evolution-data` | Evolution metrics per git tag (LOC, prompt sizes, memory) |
-| GET | `/api/chat/history` | Merged chat + progress messages (chronological, limit param) |
+| GET | `/api/chat/history` | Merged chat + system summaries + progress messages (chronological, limit param) |
 | POST | `/api/local-model/test` | Local model sanity test (chat + tool calling) |
 | WS | `/ws` | WebSocket: chat messages, commands, log streaming |
 | GET | `/static/*` | Static files from `web/` directory (NoCacheStaticFiles wrapper forces revalidation) |
@@ -471,6 +472,8 @@ the constitutional guard is that the file itself must remain non-deletable.
 - As of v3.16.0, the Memory Registry digest (from `memory/registry.md`) is injected into every LLM context to enable source-of-truth awareness.
 - As of v3.20.0, `patterns.md` (Pattern Register) is injected into semi-stable context, and execution reflections from `task_reflections.jsonl` are injected into dynamic context.
 - As of v3.22.0, all docs are always in static context: BIBLE.md (180k), ARCHITECTURE.md (60k), DEVELOPMENT.md (30k), README.md (10k), CHECKLISTS.md (5k).
+- `Health Invariants` are placed at the start of the dynamic context block, before drive state/runtime/recent sections, so warnings influence planning before the model reads the noisier tail sections.
+- `build_recent_sections()` keeps recent dialogue broad, but task-scopes recent progress/tools/events when `task_id` is available.
 - `build_health_invariants()` is split into focused helpers and now also surfaces recent provider/routing errors plus local context overflows.
 - Local-model path no longer silently slices the live system prompt. It compacts non-core sections explicitly and raises an overflow error if core context still cannot fit.
 

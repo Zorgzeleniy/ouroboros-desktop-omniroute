@@ -222,13 +222,52 @@ def build_memory_sections(memory: Memory) -> List[str]:
     return sections
 
 
-def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[str]:
-    """Build recent chat, recent progress, recent tools, recent events sections.
+def _format_recent_reflections(entries: List[Dict[str, Any]], limit: int = 10) -> str:
+    """Format recent execution reflections for dynamic context."""
+    if not entries:
+        return ""
 
-    Legacy note: older process-memory used task_reflections.jsonl and an
-    "Execution reflections" section; task summaries in chat.jsonl are now the
-    primary continuity layer.
-    """
+    blocks: List[str] = []
+    for entry in entries[-limit:]:
+        ts_full = str(entry.get("ts", ""))
+        ts = ts_full[:16] if len(ts_full) >= 16 else ts_full
+        header_bits = [bit for bit in [
+            ts,
+            str(entry.get("task_type", "")).strip(),
+            str(entry.get("task_id", "")).strip(),
+        ] if bit]
+        header = " | ".join(header_bits) or "unknown reflection"
+
+        lines = [f"### {header}"]
+
+        goal = str(entry.get("goal", "")).strip()
+        if goal:
+            lines.append(f"- Goal: {goal}")
+
+        markers = [str(m).strip() for m in (entry.get("key_markers") or []) if str(m).strip()]
+        if markers:
+            lines.append(f"- Markers: {', '.join(markers)}")
+
+        rounds = entry.get("rounds")
+        if rounds not in (None, ""):
+            lines.append(f"- Rounds: {rounds}")
+
+        cost_usd = entry.get("cost_usd")
+        if cost_usd not in (None, ""):
+            lines.append(f"- Cost: ${cost_usd}")
+
+        reflection = str(entry.get("reflection", "")).strip()
+        if reflection:
+            lines.append("")
+            lines.append(reflection)
+
+        blocks.append("\n".join(lines).strip())
+
+    return "\n\n".join(blocks)
+
+
+def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[str]:
+    """Build recent dialogue and process-memory sections."""
     sections = []
 
     chat_summary = memory.summarize_chat(memory.read_jsonl_tail("chat.jsonl", 1000))
@@ -236,16 +275,22 @@ def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[s
         sections.append("## Recent chat\n\n" + chat_summary)
 
     progress_entries = memory.read_jsonl_tail("progress.jsonl", 200)
+    if task_id:
+        progress_entries = [e for e in progress_entries if str(e.get("task_id", "")).strip() == task_id]
     progress_summary = memory.summarize_progress(progress_entries, limit=50)
     if progress_summary:
         sections.append("## Recent progress\n\n" + progress_summary)
 
     tools_entries = memory.read_jsonl_tail("tools.jsonl", 200)
+    if task_id:
+        tools_entries = [e for e in tools_entries if str(e.get("task_id", "")).strip() == task_id]
     tools_summary = memory.summarize_tools(tools_entries)
     if tools_summary:
         sections.append("## Recent tools\n\n" + tools_summary)
 
     events_entries = memory.read_jsonl_tail("events.jsonl", 200)
+    if task_id:
+        events_entries = [e for e in events_entries if str(e.get("task_id", "")).strip() == task_id]
     events_summary = memory.summarize_events(events_entries)
     if events_summary:
         sections.append("## Recent events\n\n" + events_summary)
@@ -253,6 +298,11 @@ def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[s
     supervisor_summary = memory.summarize_supervisor(memory.read_jsonl_tail("supervisor.jsonl", 200))
     if supervisor_summary:
         sections.append("## Supervisor\n\n" + supervisor_summary)
+
+    reflections_entries = memory.read_jsonl_tail("task_reflections.jsonl", 20)
+    reflections_text = _format_recent_reflections(reflections_entries, limit=10)
+    if reflections_text:
+        sections.append("## Execution reflections\n\n" + reflections_text)
 
     return sections
 
@@ -732,14 +782,14 @@ def build_llm_messages(
 
     semi_stable_text = "\n\n".join(semi_stable_parts)
 
-    dynamic_parts = [
-        "## Drive state\n\n" + state_json,
-        build_runtime_section(env, task),
-    ]
-
     health_section = build_health_invariants(env)
+    dynamic_parts = []
     if health_section:
         dynamic_parts.append(health_section)
+    dynamic_parts.extend([
+        "## Drive state\n\n" + state_json,
+        build_runtime_section(env, task),
+    ])
 
     dynamic_parts.extend(build_recent_sections(memory, env, task_id=task.get("id", "")))
 

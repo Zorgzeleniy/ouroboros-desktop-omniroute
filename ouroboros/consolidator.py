@@ -432,6 +432,9 @@ def _format_entries_for_block(entries: List[Dict[str, Any]]) -> str:
         if dir_raw in ("out", "outgoing"):
             direction_prefix = "-> "
             author = "Ouroboros"
+        elif dir_raw == "system":
+            direction_prefix = "[system] "
+            author = "Ouroboros"
         else:
             direction_prefix = ""
             author = e.get("username") or e.get("author") or "User"

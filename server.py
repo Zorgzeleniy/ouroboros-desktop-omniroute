@@ -764,7 +764,7 @@ async def api_cost_breakdown(request: Request) -> JSONResponse:
 
 
 async def api_chat_history(request: Request) -> JSONResponse:
-    """Return recent chat + progress messages merged chronologically."""
+    """Return recent chat, system, and progress messages merged chronologically."""
     try:
         limit = max(0, min(int(request.query_params.get("limit", 1000)), 2000))
     except (ValueError, TypeError):
@@ -786,17 +786,15 @@ async def api_chat_history(request: Request) -> JSONResponse:
                     except (json.JSONDecodeError, ValueError):
                         continue
                     direction = str(entry.get("direction", "")).lower()
-                    if direction == "in":
-                        role = "user"
-                    elif direction == "out":
-                        role = "assistant"
-                    else:
+                    role = {"in": "user", "out": "assistant", "system": "system"}.get(direction)
+                    if role is None:
                         continue
                     combined.append({
                         "text": str(entry.get("text", "")),
                         "role": role,
                         "ts": str(entry.get("ts", "")),
                         "is_progress": False,
+                        "system_type": str(entry.get("type", "")),
                         "markdown": str(entry.get("format", "")).lower() == "markdown",
                     })
         except Exception as e:

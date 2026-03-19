@@ -410,17 +410,17 @@ class BackgroundConsciousness:
             if patterns_text.strip():
                 parts.append("## Pattern Register\n\n" + clip_text(patterns_text, 30000))
 
+        # Health invariants
+        health_section = build_health_invariants(env)
+        if health_section:
+            parts.append(health_section)
+
         # Drive state
         state_json = safe_read(env.drive_path("state/state.json"), fallback="{}")
         parts.append("## Drive state\n\n" + clip_text(state_json, 90000))
 
         # Runtime section (same as main agent)
         parts.append(build_runtime_section(env, bg_task))
-
-        # Health invariants
-        health_section = build_health_invariants(env)
-        if health_section:
-            parts.append(health_section)
 
         # Recent sections — empty task_id so we get ALL tasks' progress/tools/events
         parts.extend(build_recent_sections(memory, env, task_id=""))

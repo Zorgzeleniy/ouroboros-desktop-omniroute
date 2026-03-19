@@ -28,23 +28,23 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     const sendBtn = document.getElementById('chat-send');
 
     const _chatHistory = [];
-    const seenAssistantKeys = new Set();
-    const assistantKeyOrder = [];
+    const seenMessageKeys = new Set();
+    const messageKeyOrder = [];
     let historyLoaded = false;
     let historySyncPromise = null;
 
-    function buildAssistantKey(text, timestamp, isProgress = false) {
+    function buildMessageKey(role, text, timestamp, isProgress = false, systemType = '') {
         if (!timestamp) return '';
-        return `${isProgress ? '1' : '0'}|${timestamp}|${text}`;
+        return `${role}|${isProgress ? '1' : '0'}|${systemType}|${timestamp}|${text}`;
     }
 
-    function rememberAssistantKey(key) {
-        if (!key || seenAssistantKeys.has(key)) return;
-        seenAssistantKeys.add(key);
-        assistantKeyOrder.push(key);
-        if (assistantKeyOrder.length > 2000) {
-            const oldest = assistantKeyOrder.shift();
-            if (oldest) seenAssistantKeys.delete(oldest);
+    function rememberMessageKey(key) {
+        if (!key || seenMessageKeys.has(key)) return;
+        seenMessageKeys.add(key);
+        messageKeyOrder.push(key);
+        if (messageKeyOrder.length > 2000) {
+            const oldest = messageKeyOrder.shift();
+            if (oldest) seenMessageKeys.delete(oldest);
         }
     }
 
@@ -75,21 +75,34 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     const pendingUserBubbles = new Map();
     let welcomeShown = false;
 
+    function getSenderLabel(role, isProgress = false, systemType = '') {
+        if (role === 'user') return 'You';
+        if (role === 'system') {
+            return systemType === 'task_summary' ? '📋 Task Summary' : '📋 System';
+        }
+        if (isProgress) return '💬 Thought';
+        return 'Ouroboros';
+    }
+
     function addMessage(text, role, markdown = false, timestamp = null, isProgress = false, opts = {}) {
         const pending = !!opts.pending;
         const ephemeral = !!opts.ephemeral;
         const clientMessageId = opts.clientMessageId || '';
+        const systemType = opts.systemType || '';
         const ts = timestamp || new Date().toISOString();
-        const assistantKey = role === 'assistant' ? buildAssistantKey(text, ts, isProgress) : '';
-        if (assistantKey && seenAssistantKeys.has(assistantKey)) return null;
-        if (!isProgress && !ephemeral) _chatHistory.push({ text, role, ts, markdown: !!markdown });
+        const messageKey = role === 'user' ? '' : buildMessageKey(role, text, ts, isProgress, systemType);
+        if (messageKey && seenMessageKeys.has(messageKey)) return null;
+        if (!isProgress && !ephemeral) {
+            _chatHistory.push({ text, role, ts, markdown: !!markdown, systemType });
+        }
         const bubble = document.createElement('div');
         bubble.className = `chat-bubble ${role}` + (isProgress ? ' progress' : '');
         if (pending) bubble.classList.add('pending');
         if (ephemeral) bubble.dataset.ephemeral = '1';
         if (clientMessageId) bubble.dataset.clientMessageId = clientMessageId;
-        const sender = role === 'user' ? 'You' : 'Ouroboros';
-        const rendered = role === 'assistant' ? renderMarkdown(text) : escapeHtml(text);
+        if (systemType) bubble.dataset.systemType = systemType;
+        const sender = getSenderLabel(role, isProgress, systemType);
+        const rendered = role === 'user' ? escapeHtml(text) : renderMarkdown(text);
         const timeFmt = formatMsgTime(ts);
         const timeHtml = timeFmt
             ? `<div class="msg-time" title="${timeFmt.full}">${timeFmt.short}</div>`
@@ -111,7 +124,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         if (!ephemeral) {
             try { sessionStorage.setItem('ouro_chat', JSON.stringify(_chatHistory.slice(-200))); } catch {}
         }
-        rememberAssistantKey(assistantKey);
+        rememberMessageKey(messageKey);
         if (pending && clientMessageId) pendingUserBubbles.set(clientMessageId, bubble);
         return bubble;
     }
@@ -135,8 +148,10 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                 const data = await resp.json();
                 const messages = Array.isArray(data.messages) ? data.messages : [];
                 for (const msg of messages) {
-                    if (!includeUser && msg.role !== 'assistant') continue;
-                    addMessage(msg.text, msg.role, !!msg.markdown, msg.ts || null, !!msg.is_progress);
+                    if (!includeUser && msg.role === 'user') continue;
+                    addMessage(msg.text, msg.role, !!msg.markdown, msg.ts || null, !!msg.is_progress, {
+                        systemType: msg.system_type || '',
+                    });
                 }
                 historyLoaded = true;
                 return messages.length > 0;
@@ -156,7 +171,11 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         // Fallback: sessionStorage (survives page reload but not app restart)
         try {
             const saved = JSON.parse(sessionStorage.getItem('ouro_chat') || '[]');
-            for (const msg of saved) addMessage(msg.text, msg.role, !!msg.markdown, msg.ts || null);
+            for (const msg of saved) {
+                addMessage(msg.text, msg.role, !!msg.markdown, msg.ts || null, false, {
+                    systemType: msg.systemType || '',
+                });
+            }
         } catch {}
         historyLoaded = true;
         ensureWelcomeMessage();
@@ -215,9 +234,11 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     ws.on('typing', () => { showTyping(); });
 
     ws.on('chat', (msg) => {
-        if (msg.role === 'assistant') {
+        if (msg.role === 'assistant' || msg.role === 'system') {
             hideTyping();
-            addMessage(msg.content, 'assistant', msg.markdown, msg.ts || null, !!msg.is_progress);
+            addMessage(msg.content, msg.role, msg.markdown, msg.ts || null, !!msg.is_progress, {
+                systemType: msg.system_type || '',
+            });
             if (state.activePage !== 'chat') {
                 state.unreadCount++;
                 updateUnreadBadge();

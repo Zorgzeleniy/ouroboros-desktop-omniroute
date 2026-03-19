@@ -252,6 +252,13 @@ body {
     margin-right: 20%;
 }
 
+.chat-bubble.system {
+    background: rgba(245, 158, 11, 0.12);
+    border-left: 2px solid rgba(245, 158, 11, 0.45);
+    align-self: flex-start;
+    margin-right: 20%;
+}
+
 .chat-bubble .sender {
     font-size: 11px;
     font-weight: 600;
@@ -259,6 +266,7 @@ body {
 }
 .chat-bubble.user .sender { color: rgba(147, 197, 253, 0.8); }
 .chat-bubble.assistant .sender { color: #dc2626; }
+.chat-bubble.system .sender { color: rgba(245, 158, 11, 0.9); }
 
 .chat-bubble .message {
     font-size: 15.5px;
@@ -268,6 +276,7 @@ body {
 }
 
 .chat-bubble.assistant .message { color: rgba(255, 220, 220, 0.85); }
+.chat-bubble.system .message { color: rgba(255, 240, 210, 0.9); }
 
 .chat-bubble.pending {
     opacity: 0.78;
@@ -301,6 +310,10 @@ body {
 }
 
 .chat-bubble.assistant .msg-time {
+    text-align: left;
+}
+
+.chat-bubble.system .msg-time {
     text-align: left;
 }
 
