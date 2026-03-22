@@ -12,6 +12,7 @@ import logging
 import os
 import pathlib
 import re
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 from ouroboros.utils import (
@@ -221,13 +222,52 @@ def build_memory_sections(memory: Memory) -> List[str]:
     return sections
 
 
-def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[str]:
-    """Build recent chat, recent progress, recent tools, recent events sections.
+def _format_recent_reflections(entries: List[Dict[str, Any]], limit: int = 10) -> str:
+    """Format recent execution reflections for dynamic context."""
+    if not entries:
+        return ""
 
-    Legacy note: older process-memory used task_reflections.jsonl and an
-    "Execution reflections" section; task summaries in chat.jsonl are now the
-    primary continuity layer.
-    """
+    blocks: List[str] = []
+    for entry in entries[-limit:]:
+        ts_full = str(entry.get("ts", ""))
+        ts = ts_full[:16] if len(ts_full) >= 16 else ts_full
+        header_bits = [bit for bit in [
+            ts,
+            str(entry.get("task_type", "")).strip(),
+            str(entry.get("task_id", "")).strip(),
+        ] if bit]
+        header = " | ".join(header_bits) or "unknown reflection"
+
+        lines = [f"### {header}"]
+
+        goal = str(entry.get("goal", "")).strip()
+        if goal:
+            lines.append(f"- Goal: {goal}")
+
+        markers = [str(m).strip() for m in (entry.get("key_markers") or []) if str(m).strip()]
+        if markers:
+            lines.append(f"- Markers: {', '.join(markers)}")
+
+        rounds = entry.get("rounds")
+        if rounds not in (None, ""):
+            lines.append(f"- Rounds: {rounds}")
+
+        cost_usd = entry.get("cost_usd")
+        if cost_usd not in (None, ""):
+            lines.append(f"- Cost: ${cost_usd}")
+
+        reflection = str(entry.get("reflection", "")).strip()
+        if reflection:
+            lines.append("")
+            lines.append(reflection)
+
+        blocks.append("\n".join(lines).strip())
+
+    return "\n\n".join(blocks)
+
+
+def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[str]:
+    """Build recent dialogue and process-memory sections."""
     sections = []
 
     chat_summary = memory.summarize_chat(memory.read_jsonl_tail("chat.jsonl", 1000))
@@ -235,16 +275,22 @@ def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[s
         sections.append("## Recent chat\n\n" + chat_summary)
 
     progress_entries = memory.read_jsonl_tail("progress.jsonl", 200)
+    if task_id:
+        progress_entries = [e for e in progress_entries if str(e.get("task_id", "")).strip() == task_id]
     progress_summary = memory.summarize_progress(progress_entries, limit=50)
     if progress_summary:
         sections.append("## Recent progress\n\n" + progress_summary)
 
     tools_entries = memory.read_jsonl_tail("tools.jsonl", 200)
+    if task_id:
+        tools_entries = [e for e in tools_entries if str(e.get("task_id", "")).strip() == task_id]
     tools_summary = memory.summarize_tools(tools_entries)
     if tools_summary:
         sections.append("## Recent tools\n\n" + tools_summary)
 
     events_entries = memory.read_jsonl_tail("events.jsonl", 200)
+    if task_id:
+        events_entries = [e for e in events_entries if str(e.get("task_id", "")).strip() == task_id]
     events_summary = memory.summarize_events(events_entries)
     if events_summary:
         sections.append("## Recent events\n\n" + events_summary)
@@ -253,18 +299,15 @@ def build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[s
     if supervisor_summary:
         sections.append("## Supervisor\n\n" + supervisor_summary)
 
+    reflections_entries = memory.read_jsonl_tail("task_reflections.jsonl", 20)
+    reflections_text = _format_recent_reflections(reflections_entries, limit=10)
+    if reflections_text:
+        sections.append("## Execution reflections\n\n" + reflections_text)
+
     return sections
 
 
-def build_health_invariants(env: Any) -> str:
-    """Build health invariants section for LLM-first self-detection.
-
-    Surfaces anomalies as informational text. The LLM (not code) decides
-    what action to take based on what it reads here. (Bible P0+P3)
-    """
-    checks = []
-
-    # 1. Version sync: VERSION file vs pyproject.toml, README badge, ARCHITECTURE.md header
+def _append_version_sync_checks(env: Any, checks: List[str]) -> None:
     try:
         ver_file = read_text(env.repo_path("VERSION")).strip()
         desync_parts = []
@@ -304,7 +347,8 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 2. Budget drift
+
+def _append_budget_drift_checks(env: Any, checks: List[str]) -> None:
     try:
         state_json = read_text(env.drive_path("state/state.json"))
         state_data = json.loads(state_json)
@@ -318,7 +362,8 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 3. Per-task cost anomalies
+
+def _append_task_cost_checks(checks: List[str]) -> None:
     try:
         from supervisor.state import per_task_cost_summary
         costly = [t for t in per_task_cost_summary(5) if t["cost"] > 5.0]
@@ -332,7 +377,8 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 4. Stale identity.md
+
+def _append_memory_health_checks(env: Any, checks: List[str]) -> None:
     try:
         import time as _time
         identity_path = env.drive_path("memory/identity.md")
@@ -345,7 +391,6 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 5. Memory health: thin identity, empty/bloated scratchpad
     try:
         identity_content = read_text(env.drive_path("memory/identity.md"))
         if len(identity_content.strip()) < 200:
@@ -365,7 +410,8 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 6. Crash rollback detection
+
+def _append_crash_rollback_checks(env: Any, checks: List[str]) -> None:
     try:
         crash_report = env.drive_path("state/crash_report.json")
         if crash_report.exists():
@@ -378,79 +424,82 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 7. Prompt-runtime drift: CONSCIOUSNESS.md references vs BG whitelist
+
+def _append_prompt_runtime_drift_checks(env: Any, checks: List[str]) -> None:
     try:
         from ouroboros.consciousness import BackgroundConsciousness
         consciousness_md = safe_read(env.repo_path("prompts/CONSCIOUSNESS.md"))
-        if consciousness_md:
-            whitelist = BackgroundConsciousness._BG_TOOL_WHITELIST
-            scan_text = re.sub(r'```.*?```', '', consciousness_md, flags=re.DOTALL)
-            _TOOL_PREFIXES = (
-                "schedule_", "update_", "knowledge_", "browse_", "analyze_",
-                "web_", "send_", "repo_", "data_", "chat_", "list_", "get_",
-                "wait_", "set_", "memory_",
+        if not consciousness_md:
+            return
+        whitelist = BackgroundConsciousness._BG_TOOL_WHITELIST
+        scan_text = re.sub(r'```.*?```', '', consciousness_md, flags=re.DOTALL)
+        tool_prefixes = (
+            "schedule_", "update_", "knowledge_", "browse_", "analyze_",
+            "web_", "send_", "repo_", "data_", "chat_", "list_", "get_",
+            "wait_", "set_", "memory_",
+        )
+        prompt_tool_refs = set()
+        for match in re.finditer(r'\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b', scan_text):
+            candidate = match.group(1)
+            if candidate in whitelist or any(candidate.startswith(prefix) for prefix in tool_prefixes):
+                prompt_tool_refs.add(candidate)
+        phantom = prompt_tool_refs - whitelist
+        if phantom:
+            checks.append(
+                f"WARNING: PROMPT-RUNTIME DRIFT — CONSCIOUSNESS.md references "
+                f"tools not in BG whitelist: {', '.join(sorted(phantom))}"
             )
-            prompt_tool_refs = set()
-            for m in re.finditer(r'\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b', scan_text):
-                candidate = m.group(1)
-                if candidate in whitelist or any(candidate.startswith(p) for p in _TOOL_PREFIXES):
-                    prompt_tool_refs.add(candidate)
-            phantom = prompt_tool_refs - whitelist
-            if phantom:
-                checks.append(
-                    f"WARNING: PROMPT-RUNTIME DRIFT — CONSCIOUSNESS.md references "
-                    f"tools not in BG whitelist: {', '.join(sorted(phantom))}"
-                )
-            else:
-                checks.append("OK: prompt-runtime sync (no phantom tools)")
+        else:
+            checks.append("OK: prompt-runtime sync (no phantom tools)")
     except Exception:
         pass
 
-    # 8. Duplicate processing detection: same user message text appearing in multiple tasks
+
+def _scan_injected_message_hashes(path: pathlib.Path, msg_hash_to_tasks: Dict[str, set], type_field: str, type_value: str) -> None:
+    if not path.exists():
+        return
+    import hashlib
+
+    tail_bytes = 256_000
+    file_size = path.stat().st_size
+    with path.open("r", encoding="utf-8") as f:
+        if file_size > tail_bytes:
+            f.seek(file_size - tail_bytes)
+            f.readline()
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if ev.get(type_field) != type_value:
+                continue
+            text = ev.get("text", "")
+            if not text and "event_repr" in ev:
+                event_repr = str(ev.get("event_repr", ""))
+                text = (
+                    event_repr[:200] + f" [...{len(event_repr) - 200} chars omitted]"
+                    if len(event_repr) > 200 else event_repr
+                )
+            if not text:
+                continue
+            text_hash = hashlib.md5(text.encode()).hexdigest()[:12]
+            tid = ev.get("task_id") or "unknown"
+            msg_hash_to_tasks.setdefault(text_hash, set()).add(tid)
+
+
+def _append_duplicate_processing_checks(env: Any, checks: List[str]) -> None:
     try:
-        import hashlib
         msg_hash_to_tasks: Dict[str, set] = {}
-        tail_bytes = 256_000
-
-        def _scan_file_for_injected(path, type_field="type", type_value="owner_message_injected"):
-            if not path.exists():
-                return
-            file_size = path.stat().st_size
-            with path.open("r", encoding="utf-8") as f:
-                if file_size > tail_bytes:
-                    f.seek(file_size - tail_bytes)
-                    f.readline()
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        ev = json.loads(line)
-                        if ev.get(type_field) != type_value:
-                            continue
-                        text = ev.get("text", "")
-                        if not text and "event_repr" in ev:
-                            # Historical entries in supervisor.jsonl lack "text";
-                            # try to extract task_id at least for presence detection
-                            text = ev.get("event_repr", "")[:200]
-                        if not text:
-                            continue
-                        text_hash = hashlib.md5(text.encode()).hexdigest()[:12]
-                        tid = ev.get("task_id") or "unknown"
-                        if text_hash not in msg_hash_to_tasks:
-                            msg_hash_to_tasks[text_hash] = set()
-                        msg_hash_to_tasks[text_hash].add(tid)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-
-        _scan_file_for_injected(env.drive_path("logs/events.jsonl"))
-        # Also check supervisor.jsonl for historically unhandled events
-        _scan_file_for_injected(
+        _scan_injected_message_hashes(env.drive_path("logs/events.jsonl"), msg_hash_to_tasks, "type", "owner_message_injected")
+        _scan_injected_message_hashes(
             env.drive_path("logs/supervisor.jsonl"),
-            type_field="event_type",
-            type_value="owner_message_injected",
+            msg_hash_to_tasks,
+            "event_type",
+            "owner_message_injected",
         )
-
         dupes = {h: tids for h, tids in msg_hash_to_tasks.items() if len(tids) > 1}
         if dupes:
             checks.append(
@@ -462,27 +511,122 @@ def build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 9. Cache hit rate — low rate means context structure is degrading
+
+def _append_cache_hit_rate_checks(env: Any, checks: List[str]) -> None:
     try:
         hit_rate = _compute_cache_hit_rate(env)
-        if hit_rate is not None:
-            if hit_rate < 0.30:
-                checks.append(
-                    f"WARNING: LOW CACHE HIT RATE — {hit_rate:.0%} cached. "
-                    "Context structure may be degrading prompt caching efficiency."
-                )
-            elif hit_rate >= 0.50:
-                checks.append(f"OK: cache hit rate ({hit_rate:.0%})")
-            else:
-                checks.append(f"INFO: cache hit rate moderate ({hit_rate:.0%})")
+        if hit_rate is None:
+            return
+        if hit_rate < 0.30:
+            checks.append(
+                f"WARNING: LOW CACHE HIT RATE — {hit_rate:.0%} cached. "
+                "Context structure may be degrading prompt caching efficiency."
+            )
+        elif hit_rate >= 0.50:
+            checks.append(f"OK: cache hit rate ({hit_rate:.0%})")
+        else:
+            checks.append(f"INFO: cache hit rate moderate ({hit_rate:.0%})")
     except Exception:
         pass
 
+
+def _append_provider_routing_health_checks(env: Any, checks: List[str]) -> None:
+    try:
+        events_path = env.drive_path("logs/events.jsonl")
+        if not events_path.exists():
+            return
+        llm_error_models: Counter = Counter()
+        local_overflow_models: Counter = Counter()
+        file_size = events_path.stat().st_size
+        tail_bytes = 256_000
+        with events_path.open("r", encoding="utf-8") as f:
+            if file_size > tail_bytes:
+                f.seek(file_size - tail_bytes)
+                f.readline()
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                evt_type = str(ev.get("type") or "")
+                model = str(ev.get("model") or "unknown")
+                if evt_type in {"llm_api_error", "review_model_error", "consciousness_llm_error", "provider_incomplete_response"}:
+                    llm_error_models[model] += 1
+                elif evt_type == "local_context_overflow":
+                    local_overflow_models[model] += 1
+        if llm_error_models:
+            top = ", ".join(f"{model} x{count}" for model, count in llm_error_models.most_common(3))
+            checks.append(
+                f"WARNING: PROVIDER/ROUTING ERRORS — {sum(llm_error_models.values())} recent failures "
+                f"({top}). Reliability or failover may need attention."
+            )
+        else:
+            checks.append("OK: no recent provider/routing errors")
+        if local_overflow_models:
+            top = ", ".join(f"{model} x{count}" for model, count in local_overflow_models.most_common(3))
+            checks.append(
+                f"WARNING: LOCAL CONTEXT OVERFLOW — {sum(local_overflow_models.values())} recent overflow event(s) "
+                f"({top}). Local context may need more compaction or a larger window."
+            )
+        else:
+            checks.append("OK: no recent local context overflows")
+    except Exception:
+        pass
+
+
+def _append_rescue_snapshot_checks(env: Any, checks: List[str]) -> None:
+    try:
+        import time as _time
+        rescue_dir = env.drive_path("archive/rescue")
+        if not rescue_dir.exists():
+            return
+        now = _time.time()
+        recent = []
+        for entry in sorted(rescue_dir.iterdir(), reverse=True):
+            if not entry.is_dir():
+                continue
+            age_sec = now - entry.stat().st_mtime
+            if age_sec < 7200:
+                meta_path = entry / "rescue_meta.json"
+                file_count = sum(1 for _ in entry.rglob("*") if _.is_file())
+                age_str = f"{int(age_sec // 60)}m ago" if age_sec < 3600 else f"{age_sec / 3600:.1f}h ago"
+                recent.append(f"{entry.name} ({age_str}, {file_count} files)")
+            if len(recent) >= 3:
+                break
+        if recent:
+            checks.append(
+                f"WARNING: RESCUE SNAPSHOT AVAILABLE — {', '.join(recent)}. "
+                "Uncommitted changes were saved before last restart. "
+                "Use data_read to inspect archive/rescue/<dirname>/rescue_meta.json "
+                "and changes.diff to decide if recovery is needed."
+            )
+    except Exception:
+        pass
+
+
+def build_health_invariants(env: Any) -> str:
+    """Build health invariants section for LLM-first self-detection.
+
+    Includes crash_report.json / CRASH ROLLBACK detection via helpers.
+    """
+    checks: List[str] = []
+    _append_version_sync_checks(env, checks)
+    _append_budget_drift_checks(env, checks)
+    _append_task_cost_checks(checks)
+    _append_memory_health_checks(env, checks)
+    _append_crash_rollback_checks(env, checks)
+    _append_prompt_runtime_drift_checks(env, checks)
+    _append_duplicate_processing_checks(env, checks)
+    _append_cache_hit_rate_checks(env, checks)
+    _append_provider_routing_health_checks(env, checks)
+    _append_rescue_snapshot_checks(env, checks)
     try:
         _append_file_size_budget_checks(env, checks)
     except Exception:
         pass
-
     if not checks:
         return ""
     return "## Health Invariants\n\n" + "\n".join(f"- {c}" for c in checks)
@@ -570,7 +714,7 @@ def _registry_row(source_id: str, fields: dict) -> str:
     gaps = fields.get("gaps", "—")
     # Keep gaps short
     if len(gaps) > 60:
-        gaps = gaps[:57] + "..."
+        gaps = gaps[:57] + f"... [{len(gaps) - 57} chars omitted]"
     return f"| {source_id} | {path} | {updated} | {gaps} |"
 
 
@@ -638,14 +782,14 @@ def build_llm_messages(
 
     semi_stable_text = "\n\n".join(semi_stable_parts)
 
-    dynamic_parts = [
-        "## Drive state\n\n" + state_json,
-        build_runtime_section(env, task),
-    ]
-
     health_section = build_health_invariants(env)
+    dynamic_parts = []
     if health_section:
         dynamic_parts.append(health_section)
+    dynamic_parts.extend([
+        "## Drive state\n\n" + state_json,
+        build_runtime_section(env, task),
+    ])
 
     dynamic_parts.extend(build_recent_sections(memory, env, task_id=task.get("id", "")))
 

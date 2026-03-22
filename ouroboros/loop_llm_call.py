@@ -16,8 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import logging
 
-from ouroboros.llm import LLMClient, add_usage
-from ouroboros.pricing import emit_llm_usage_event, estimate_cost
+from ouroboros.llm import LLMClient, LocalContextTooLargeError, add_usage
+from ouroboros.pricing import emit_llm_usage_event, estimate_cost, infer_model_category
 from ouroboros.utils import utc_now_iso, append_jsonl
 
 log = logging.getLogger(__name__)
@@ -82,6 +82,7 @@ def call_llm_with_retry(
 
             cost = float(usage.get("cost") or 0)
             display_model = model
+            provider = "local" if use_local else "openrouter"
             if use_local:
                 cost = 0.0
                 display_model = f"{model} (local)"
@@ -95,29 +96,47 @@ def call_llm_with_retry(
                 )
 
             category = task_type if task_type in ("evolution", "consciousness", "review", "summarize") else "task"
-            emit_llm_usage_event(event_queue, task_id, display_model, usage, cost, category)
+            emit_llm_usage_event(
+                event_queue,
+                task_id,
+                display_model,
+                usage,
+                cost,
+                category,
+                provider=provider,
+                source="loop",
+            )
 
             tool_calls = msg.get("tool_calls") or []
             content = msg.get("content")
             if not tool_calls and (not content or not content.strip()):
+                finish_reason = msg.get("finish_reason") or msg.get("stop_reason")
+                is_provider_glitch = finish_reason is None
+                event_type = "provider_incomplete_response" if is_provider_glitch else "llm_empty_response"
+                log_msg = (
+                    "Provider returned incomplete response (finish_reason=null)"
+                    if is_provider_glitch
+                    else "LLM returned empty response (no content, no tool_calls)"
+                )
                 _emit_live_log(event_queue, {
-                    "type": "llm_round_empty",
+                    "type": event_type,
                     "task_id": task_id,
                     "task_type": task_type,
                     "round": round_idx,
                     "attempt": attempt + 1,
                     "model": model,
+                    "finish_reason": finish_reason,
                 })
-                log.warning("LLM returned empty response (no content, no tool_calls), attempt %d/%d", attempt + 1, max_retries)
+                log.warning("%s, attempt %d/%d", log_msg, attempt + 1, max_retries)
 
                 append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "llm_empty_response",
+                    "ts": utc_now_iso(), "type": event_type,
                     "task_id": task_id,
                     "round": round_idx, "attempt": attempt + 1,
                     "model": model,
                     "raw_content": repr(content)[:500] if content else None,
                     "raw_tool_calls": repr(tool_calls)[:500] if tool_calls else None,
-                    "finish_reason": msg.get("finish_reason") or msg.get("stop_reason"),
+                    "finish_reason": finish_reason,
                 })
 
                 if attempt < max_retries - 1:
@@ -132,6 +151,9 @@ def call_llm_with_retry(
                 "task_id": task_id,
                 "round": round_idx, "model": display_model,
                 "reasoning_effort": effort,
+                "provider": provider,
+                "source": "loop",
+                "model_category": infer_model_category(display_model),
                 "prompt_tokens": int(usage.get("prompt_tokens") or 0),
                 "completion_tokens": int(usage.get("completion_tokens") or 0),
                 "cached_tokens": int(usage.get("cached_tokens") or 0),
@@ -175,6 +197,17 @@ def call_llm_with_retry(
                 "round": round_idx, "attempt": attempt + 1,
                 "model": model, "error": repr(e),
             })
+            if isinstance(e, LocalContextTooLargeError):
+                append_jsonl(drive_logs / "events.jsonl", {
+                    "ts": utc_now_iso(),
+                    "type": "local_context_overflow",
+                    "task_id": task_id,
+                    "round": round_idx,
+                    "attempt": attempt + 1,
+                    "model": model,
+                    "error": repr(e),
+                })
+                break
             if attempt < max_retries - 1:
                 time.sleep(min(2 ** attempt * 2, 30))
 

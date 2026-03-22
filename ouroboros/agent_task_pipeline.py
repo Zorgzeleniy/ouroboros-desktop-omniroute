@@ -16,9 +16,17 @@ import threading
 import time
 from typing import Any, Dict, List
 
+from ouroboros.task_results import STATUS_COMPLETED, write_task_result
 from ouroboros.utils import utc_now_iso, append_jsonl
 
 log = logging.getLogger(__name__)
+
+
+def _truncate_with_notice(text: Any, limit: int) -> str:
+    raw = str(text or "")
+    if len(raw) <= limit:
+        return raw
+    return raw[:limit] + f"\n...[truncated from {len(raw)} chars; omitted {len(raw) - limit}]"
 
 
 def build_trace_summary(llm_trace: dict) -> str:
@@ -44,6 +52,8 @@ def build_trace_summary(llm_trace: dict) -> str:
                     if len(v_str) > 60:
                         v_str = v_str[:57] + "..."
                     parts.append(f"{k}={v_str!r}")
+                if len(args) > 2:
+                    parts.append(f"... (+{len(args) - 2} more args)")
                 args_str = ", ".join(parts)
             else:
                 args_str = repr(args)
@@ -148,23 +158,20 @@ def _store_task_result(env: Any, task: Dict[str, Any], text: str,
                        usage: Dict[str, Any], llm_trace: Dict[str, Any]) -> None:
     """Store task result for parent task retrieval."""
     try:
-        results_dir = pathlib.Path(env.drive_root) / "task_results"
-        results_dir.mkdir(parents=True, exist_ok=True)
         trace_summary = build_trace_summary(llm_trace)
-        result_data = {
-            "task_id": task.get("id"),
-            "parent_task_id": task.get("parent_task_id"),
-            "status": "completed",
-            "result": text[:3500] if text else "",
-            "trace_summary": trace_summary,
-            "cost_usd": round(float(usage.get("cost") or 0), 6),
-            "total_rounds": int(usage.get("rounds") or 0),
-            "ts": utc_now_iso(),
-        }
-        result_file = results_dir / f"{task.get('id')}.json"
-        tmp_file = results_dir / f"{task.get('id')}.json.tmp"
-        tmp_file.write_text(json.dumps(result_data, ensure_ascii=False, indent=2))
-        os.rename(tmp_file, result_file)
+        write_task_result(
+            env.drive_root,
+            str(task.get("id") or ""),
+            STATUS_COMPLETED,
+            parent_task_id=task.get("parent_task_id"),
+            description=task.get("description"),
+            context=task.get("context"),
+            result=text or "",
+            trace_summary=trace_summary,
+            cost_usd=round(float(usage.get("cost") or 0), 6),
+            total_rounds=int(usage.get("rounds") or 0),
+            ts=utc_now_iso(),
+        )
     except Exception as e:
         log.warning("Failed to store task result: %s", e)
 
@@ -194,14 +201,14 @@ def _run_task_summary(env, llm, task, usage, llm_trace, drive_logs):
             CONSOLIDATION_REASONING_EFFORT,
         )
         task_id = task.get("id", "unknown")
-        goal = str(task.get("text", ""))[:500]
+        goal = _truncate_with_notice(task.get("text", ""), 500)
         rounds = int(usage.get("rounds") or 0)
         cost = float(usage.get("cost") or 0)
         trace = build_trace_summary(llm_trace)
         prompt = _TASK_SUMMARY_PROMPT.format(
             task_id=task_id, goal=goal or "(no goal text)",
             task_type=task.get("type", "user"), rounds=rounds,
-            cost=cost, trace_summary=trace[:3000],
+            cost=cost, trace_summary=_truncate_with_notice(trace, 3000),
         )
         try:
             msg, _usage = llm.chat(messages=[{"role": "user", "content": prompt}],
@@ -217,7 +224,10 @@ def _run_task_summary(env, llm, task, usage, llm_trace, drive_logs):
                     pass
         except Exception:
             log.warning("Task summary LLM call failed, using fallback", exc_info=True)
-            summary_text = f"Task {task_id} ({task.get('type', 'user')}): {goal[:200]}. {rounds}r, ${cost:.2f}."
+            summary_text = (
+                f"Task {task_id} ({task.get('type', 'user')}): "
+                f"{_truncate_with_notice(goal, 200)}. {rounds}r, ${cost:.2f}."
+            )
         if summary_text:
             append_jsonl(drive_logs / "chat.jsonl", {
                 "ts": utc_now_iso(), "direction": "system",
@@ -351,6 +361,16 @@ def build_review_context(env: Any) -> str:
                 "\nUse repo_read to inspect specific files. "
                 "Use run_shell for tests. Key files below:\n",
             ]
+            if stats.get("truncated"):
+                parts.append(f"\nCompacted files: {stats['truncated']}\n")
+            if stats.get("dropped"):
+                dropped_paths = stats.get("dropped_paths") or []
+                preview = ", ".join(dropped_paths[:5])
+                parts.append(
+                    f"\nDropped files due review budget: {stats['dropped']}"
+                    + (f" ({preview}{' ...' if len(dropped_paths) > 5 else ''})" if preview else "")
+                    + "\n"
+                )
             chunks = chunk_sections(sections)
             parts.append(chunks[0] if chunks else "(No reviewable content found.)")
             return "\n".join(parts)
@@ -380,6 +400,16 @@ def build_review_context(env: Any) -> str:
                 "\nUse repo_read to inspect specific files. "
                 "Use run_shell for tests. Key files below:\n",
             ]
+            if stats.get("truncated"):
+                parts.append(f"\nCompacted files: {stats['truncated']}\n")
+            if stats.get("dropped"):
+                dropped_paths = stats.get("dropped_paths") or []
+                preview = ", ".join(dropped_paths[:5])
+                parts.append(
+                    f"\nDropped files due review budget: {stats['dropped']}"
+                    + (f" ({preview}{' ...' if len(dropped_paths) > 5 else ''})" if preview else "")
+                    + "\n"
+                )
             chunks = chunk_sections(sections)
             parts.append(chunks[0] if chunks else "(No reviewable content found.)")
             return "\n".join(parts)

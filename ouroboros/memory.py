@@ -301,6 +301,9 @@ class Memory:
                 raw_text = str(e.get("text", ""))
                 if dir_raw in ("out", "outgoing"):
                     lines.append(f"→ [{ts}] {raw_text}")
+                elif dir_raw == "system":
+                    entry_type = str(e.get("type", "")).strip() or "system"
+                    lines.append(f"📋 [{ts}] [{entry_type}] {raw_text}")
                 else:
                     username = e.get("username") or e.get("author") or "User"
                     lines.append(f"← [{ts}] [{username}] {raw_text}")
@@ -347,6 +350,9 @@ class Memory:
             raw_text = str(e.get("text", ""))
             if dir_raw in ("out", "outgoing"):
                 lines.append(f"→ {ts_hhmm} {raw_text}")
+            elif dir_raw == "system":
+                entry_type = str(e.get("type", "")).strip() or "system"
+                lines.append(f"📋 {ts_hhmm} [{entry_type}] {raw_text}")
             else:
                 username = e.get("username") or e.get("author") or "User"
                 lines.append(f"← {ts_hhmm} [{username}] {raw_text}")

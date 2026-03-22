@@ -42,7 +42,7 @@ def _handle_text_response(
 ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
     """Handle LLM response without tool calls (final response)."""
     if content and content.strip():
-        llm_trace["reasoning_notes"].append(content.strip()[:320])
+        llm_trace["reasoning_notes"].append(content.strip())
     return (content or ""), accumulated_usage, llm_trace
 
 
@@ -241,7 +241,7 @@ def _drain_incoming_messages(
                     event_queue.put_nowait({
                         "type": "owner_message_injected",
                         "task_id": task_id,
-                        "text": dmsg[:200],
+                        "text": dmsg,
                     })
                 except Exception:
                     pass
@@ -399,7 +399,7 @@ def run_llm_loop(
 
             if content and content.strip():
                 emit_progress(content.strip())
-                llm_trace["reasoning_notes"].append(content.strip()[:320])
+                llm_trace["reasoning_notes"].append(content.strip())
 
             error_count = handle_tool_calls(
                 tool_calls, tools, drive_logs, task_id, stateful_executor,

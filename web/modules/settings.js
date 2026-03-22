@@ -188,7 +188,7 @@ export function initSettings({ ws, state }) {
         document.getElementById('s-effort-review').value = s.OUROBOROS_EFFORT_REVIEW || 'medium';
         document.getElementById('s-effort-consciousness').value = s.OUROBOROS_EFFORT_CONSCIOUSNESS || 'low';
         if (s.OUROBOROS_REVIEW_MODELS) document.getElementById('s-review-models').value = s.OUROBOROS_REVIEW_MODELS;
-        document.getElementById('s-review-enforcement').value = s.OUROBOROS_REVIEW_ENFORCEMENT || 'blocking';
+        document.getElementById('s-review-enforcement').value = s.OUROBOROS_REVIEW_ENFORCEMENT || 'advisory';
         if (s.OUROBOROS_MAX_WORKERS) document.getElementById('s-workers').value = s.OUROBOROS_MAX_WORKERS;
         if (s.TOTAL_BUDGET) document.getElementById('s-budget').value = s.TOTAL_BUDGET;
         if (s.OUROBOROS_SOFT_TIMEOUT_SEC) document.getElementById('s-soft-timeout').value = s.OUROBOROS_SOFT_TIMEOUT_SEC;

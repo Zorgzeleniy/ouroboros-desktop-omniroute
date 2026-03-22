@@ -98,7 +98,7 @@ def _collect_error_details(llm_trace: Dict[str, Any], cap: int = 3000) -> str:
         if total + len(snippet) > cap:
             remaining = cap - total
             if remaining > 50:
-                parts.append(snippet[:remaining] + "...")
+                parts.append(_truncate_with_notice(snippet, remaining))
             break
         parts.append(snippet)
         total += len(snippet)
@@ -130,7 +130,7 @@ def generate_reflection(
     """
     from ouroboros.llm import DEFAULT_LIGHT_MODEL
 
-    goal = str(task.get("text", ""))[:200]
+    goal = _truncate_with_notice(task.get("text", ""), 200)
     error_details = _collect_error_details(llm_trace)
     markers = _detect_markers(llm_trace)
     error_count = sum(
@@ -140,7 +140,7 @@ def generate_reflection(
 
     prompt = _REFLECTION_PROMPT.format(
         goal=goal or "(no goal text)",
-        trace_summary=trace_summary[:2000],
+        trace_summary=_truncate_with_notice(trace_summary, 2000),
         error_details=error_details,
     )
 
@@ -218,6 +218,17 @@ _PATTERNS_HEADER = (
 )
 
 
+def _truncate_with_notice(text: Any, limit: int) -> str:
+    raw = str(text or "")
+    if len(raw) <= limit:
+        return raw
+    marker = f"... [+{len(raw) - limit} chars]"
+    available = max(0, limit - len(marker))
+    marker = f"... [+{len(raw) - available} chars]"
+    available = max(0, limit - len(marker))
+    return raw[:available] + marker
+
+
 def _update_patterns(drive_root: pathlib.Path, entry: Dict[str, Any]) -> None:
     """Update patterns.md knowledge base topic via LLM (Pattern Register)."""
     from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
@@ -231,10 +242,17 @@ def _update_patterns(drive_root: pathlib.Path, entry: Dict[str, Any]) -> None:
         current = _PATTERNS_HEADER
 
     prompt = _PATTERNS_PROMPT.format(
-        current_patterns=current[:3000],
-        goal=entry.get("goal", "?")[:200],
+        current_patterns=(
+            _truncate_with_notice(current, 3000)
+            + (
+                "\n\n[IMPORTANT: The current register was compacted for prompt size. "
+                "Preserve existing rows unless you are intentionally merging or updating them.]"
+                if len(current) > 3000 else ""
+            )
+        ),
+        goal=_truncate_with_notice(entry.get("goal", "?"), 200),
         markers=", ".join(entry.get("key_markers", [])),
-        reflection=str(entry.get("reflection", ""))[:500],
+        reflection=_truncate_with_notice(entry.get("reflection", ""), 500),
     )
 
     light_model = os.environ.get("OUROBOROS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL

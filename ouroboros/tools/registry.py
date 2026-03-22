@@ -363,7 +363,12 @@ class ToolRegistry:
 
         # --- LLM Safety Supervisor ---
         from ouroboros.safety import check_safety
-        is_safe, safety_msg = check_safety(name, args, messages=getattr(self._ctx, "messages", None))
+        is_safe, safety_msg = check_safety(
+            name,
+            args,
+            messages=getattr(self._ctx, "messages", None),
+            ctx=self._ctx,
+        )
         if not is_safe:
             return safety_msg
 

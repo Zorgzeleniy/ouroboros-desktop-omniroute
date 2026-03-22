@@ -44,6 +44,7 @@ from ouroboros.agent_startup_checks import (
 from ouroboros.agent_task_pipeline import (
     build_trace_summary, emit_task_results, build_review_context,
 )
+from ouroboros.task_results import STATUS_RUNNING, write_task_result
 
 
 _worker_boot_logged = False
@@ -161,6 +162,18 @@ class OuroborosAgent:
         drive_logs = self.env.drive_path("logs")
         sanitized_task = sanitize_task_for_event(task, drive_logs)
         append_jsonl(drive_logs / "events.jsonl", {"ts": utc_now_iso(), "type": "task_received", "task": sanitized_task})
+        try:
+            write_task_result(
+                self.env.drive_root,
+                str(task.get("id") or ""),
+                STATUS_RUNNING,
+                parent_task_id=task.get("parent_task_id"),
+                description=task.get("description"),
+                context=task.get("context"),
+                result="Task is running.",
+            )
+        except Exception:
+            log.debug("Failed to persist running task status", exc_info=True)
         self._emit_live_log(
             "context_building_started",
             task_id=str(task.get("id") or ""),
@@ -278,6 +291,16 @@ class OuroborosAgent:
                     "traceback": truncate_for_log(tb, 2000),
                 })
                 text = f"⚠️ Error during processing: {type(e).__name__}: {e}"
+                try:
+                    from ouroboros.task_results import STATUS_FAILED, write_task_result
+                    write_task_result(
+                        self.env.drive_root,
+                        str(task.get("id") or ""),
+                        STATUS_FAILED,
+                        result=text,
+                    )
+                except Exception:
+                    pass
 
             if not isinstance(text, str) or not text.strip():
                 text = "⚠️ Model returned an empty response. Try rephrasing your request."

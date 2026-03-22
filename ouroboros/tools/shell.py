@@ -7,12 +7,14 @@ import logging
 import os
 import pathlib
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 import threading
+import time
 from subprocess import Popen, CompletedProcess
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ouroboros.compat import IS_WINDOWS, PATH_SEP, kill_process_tree, node_download_info
 from ouroboros.tools.registry import ToolContext, ToolEntry
@@ -78,6 +80,13 @@ _SHELL_BUILTINS = frozenset([
 ])
 
 _SHELL_OPERATORS = frozenset(["&&", "||", "|", ";", ">", ">>", "<", "<<"])
+_SHELL_INTERPRETERS = frozenset({
+    "sh", "bash", "zsh", "fish",
+    "cmd", "cmd.exe",
+    "powershell", "powershell.exe",
+    "pwsh", "pwsh.exe",
+})
+_ENV_REF_PATTERN = re.compile(r'\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*)')
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +150,18 @@ def _run_shell(ctx: ToolContext, cmd, cwd: str = "") -> str:
         return "⚠️ SHELL_ARG_ERROR: cmd must be a list of strings."
     cmd = [str(x) for x in cmd]
 
+    executable_name = pathlib.Path(cmd[0]).name.lower() if cmd else ""
+    if executable_name not in _SHELL_INTERPRETERS:
+        for arg in cmd:
+            match = _ENV_REF_PATTERN.search(arg)
+            if match:
+                return (
+                    f'⚠️ SHELL_ENV_ERROR: Found literal env reference "{match.group(0)}" in cmd array. '
+                    "run_shell executes argv directly, so shell variables are not expanded. "
+                    'Use ["sh", "-c", "..."] if you intentionally need shell expansion, '
+                    "or read the environment variable inside the called program."
+                )
+
     # Reject shell builtins (they are not executables)
     if cmd and cmd[0] in _SHELL_BUILTINS:
         if cmd[0] == "cd":
@@ -198,19 +219,19 @@ _install_lock = threading.Lock()
 _path_initialized = False
 
 
-def _ensure_claude_cli(ctx: ToolContext) -> Optional[str]:
+def _ensure_claude_cli(ctx: ToolContext) -> Tuple[Optional[str], bool]:
     """Ensure claude CLI is available. Auto-install if needed.
 
-    Returns error string or None on success.
+    Returns (error_string, freshly_installed).
     """
     _ensure_path()
     if shutil.which("claude"):
-        return None
+        return None, False
 
     with _install_lock:
         _ensure_path()
         if shutil.which("claude"):
-            return None
+            return None, False
 
         ctx.emit_progress_fn("Claude CLI not found. Installing Node.js + Claude Code...")
 
@@ -218,13 +239,13 @@ def _ensure_claude_cli(ctx: ToolContext) -> Optional[str]:
         if not node_bin.exists():
             err = _install_node()
             if err:
-                return err
+                return err, False
             _ensure_path()
 
         npm_name = "npm.cmd" if IS_WINDOWS else "npm"
         npm = str(_NODE_BIN / npm_name)
         if not pathlib.Path(npm).exists():
-            return "⚠️ npm not found after Node.js install."
+            return "⚠️ npm not found after Node.js install.", False
 
         try:
             _tracked_subprocess_run(
@@ -234,13 +255,13 @@ def _ensure_claude_cli(ctx: ToolContext) -> Optional[str]:
                 text=True, timeout=180,
             )
         except Exception as e:
-            return f"⚠️ npm install failed: {e}"
+            return f"⚠️ npm install failed: {e}", False
 
         _ensure_path()
         if shutil.which("claude"):
             ctx.emit_progress_fn("Claude Code CLI installed successfully.")
-            return None
-        return "⚠️ Claude Code CLI binary not found in PATH after auto-install."
+            return None, True
+        return "⚠️ Claude Code CLI binary not found in PATH after auto-install.", False
 
 
 def _install_node() -> Optional[str]:
@@ -350,6 +371,58 @@ def _run_claude_cli(work_dir: str, prompt: str, env: dict,
     return res
 
 
+def _parse_claude_payload(stdout: str) -> Optional[Dict[str, Any]]:
+    """Parse Claude CLI JSON stdout if present."""
+    try:
+        payload = json.loads(stdout)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _should_retry_claude_first_run(stdout: str, freshly_installed: bool) -> bool:
+    """Detect the transient zero-token auth-like failure seen after fresh installs."""
+    if not freshly_installed:
+        return False
+    payload = _parse_claude_payload(stdout)
+    if not payload or not payload.get("is_error"):
+        return False
+
+    result = str(payload.get("result", "")).lower()
+    if "invalid api key" not in result:
+        return False
+
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+    token_total = 0
+    for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"):
+        try:
+            token_total += int(usage.get(key) or 0)
+        except Exception:
+            continue
+
+    total_cost = float(payload.get("total_cost_usd") or 0)
+    duration_api_ms = int(payload.get("duration_api_ms") or 0)
+    return token_total == 0 and total_cost == 0 and duration_api_ms == 0
+
+
+def _format_claude_code_error(res: CompletedProcess) -> str:
+    """Render Claude CLI failures with a parsed summary when possible."""
+    stdout = (res.stdout or "").strip()
+    stderr = (res.stderr or "").strip()
+    payload = _parse_claude_payload(stdout)
+    summary = ""
+    if payload:
+        result = str(payload.get("result", "")).strip()
+        if result:
+            summary = f"\nCLI result: {result}"
+    return (
+        f"⚠️ CLAUDE_CODE_ERROR: exit={res.returncode}"
+        f"{summary}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    )
+
+
 def _check_uncommitted_changes(repo_dir: pathlib.Path) -> str:
     """Check git status after edit, return warning string or empty string."""
     try:
@@ -382,7 +455,9 @@ def _check_uncommitted_changes(repo_dir: pathlib.Path) -> str:
 def _parse_claude_output(stdout: str, ctx: ToolContext) -> str:
     """Parse JSON output and emit cost event, return result string."""
     try:
-        payload = json.loads(stdout)
+        payload = _parse_claude_payload(stdout)
+        if payload is None:
+            return stdout
         out: Dict[str, Any] = {
             "result": payload.get("result", ""),
             "session_id": payload.get("session_id"),
@@ -421,7 +496,7 @@ def _claude_code_edit(ctx: ToolContext, prompt: str, cwd: str = "",
         if candidate.exists():
             work_dir = str(candidate)
 
-    install_err = _ensure_claude_cli(ctx)
+    install_err, freshly_installed = _ensure_claude_cli(ctx)
     if install_err:
         return install_err
 
@@ -457,10 +532,15 @@ def _claude_code_edit(ctx: ToolContext, prompt: str, cwd: str = "",
         res = _run_claude_cli(work_dir, full_prompt, env,
                               model=model, budget=budget)
 
+        if res.returncode != 0 and _should_retry_claude_first_run(res.stdout or "", freshly_installed):
+            ctx.emit_progress_fn("Claude CLI returned a transient first-run auth error. Retrying once...")
+            time.sleep(2)
+            res = _run_claude_cli(work_dir, full_prompt, env,
+                                  model=model, budget=budget)
+
         stdout = (res.stdout or "").strip()
-        stderr = (res.stderr or "").strip()
         if res.returncode != 0:
-            return f"⚠️ CLAUDE_CODE_ERROR: exit={res.returncode}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+            return _format_claude_code_error(res)
         if not stdout:
             stdout = "OK: Claude Code completed with empty output."
 

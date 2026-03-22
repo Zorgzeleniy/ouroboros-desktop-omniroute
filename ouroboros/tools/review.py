@@ -14,6 +14,7 @@ import logging
 import pathlib
 from typing import List, Optional
 
+from ouroboros.llm import LLMClient
 from ouroboros.utils import utc_now_iso, run_cmd, append_jsonl
 from ouroboros import config as _cfg
 from ouroboros.tools.registry import ToolEntry, ToolContext
@@ -22,8 +23,6 @@ log = logging.getLogger(__name__)
 
 MAX_MODELS = 10
 CONCURRENCY_LIMIT = 5
-
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _CONSTITUTIONAL_PREAMBLE = """\
 ## CONSTITUTIONAL CONTEXT — TOP PRIORITY
@@ -124,28 +123,21 @@ def _handle_multi_model_review(ctx: ToolContext, content: str = "",
         return json.dumps({"error": f"Review failed: {e}"}, ensure_ascii=False)
 
 
-async def _query_model(client, model, messages, api_key, semaphore):
+async def _query_model(llm_client: LLMClient, model: str, messages: list, semaphore):
     async with semaphore:
         try:
-            import httpx
-            resp = await client.post(
-                OPENROUTER_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": model, "messages": messages, "temperature": 0.2},
-                timeout=120.0,
+            msg, usage = await llm_client.chat_async(
+                messages=messages,
+                model=model,
+                reasoning_effort="low",
+                max_tokens=4096,
+                temperature=0.2,
             )
-            status_code = resp.status_code
-            response_text = resp.text
-            response_headers = dict(resp.headers)
-            if status_code != 200:
-                error_text = response_text[:200]
-                if len(response_text) > 200:
-                    error_text += " [truncated]"
-                return model, f"HTTP {status_code}: {error_text}", None
-            return model, resp.json(), response_headers
+            payload = {
+                "choices": [{"message": {"content": msg.get("content") or ""}}],
+                "usage": usage or {},
+            }
+            return model, payload, None
         except asyncio.TimeoutError:
             return model, "Error: Timeout after 120s", None
         except Exception as e:
@@ -190,10 +182,9 @@ async def _multi_model_review_async(content: str, prompt: str,
     ]
 
     semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
-    import httpx
-    async with httpx.AsyncClient() as client:
-        tasks = [_query_model(client, m, messages, api_key, semaphore) for m in models]
-        results = await asyncio.gather(*tasks)
+    llm_client = LLMClient(api_key=api_key)
+    tasks = [_query_model(llm_client, m, messages, semaphore) for m in models]
+    results = await asyncio.gather(*tasks)
 
     review_results = []
     for model, result, headers_dict in results:
@@ -240,6 +231,8 @@ def _parse_model_response(model: str, result, headers_dict) -> dict:
     usage = result.get("usage", {})
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
+    cached_tokens = usage.get("cached_tokens", 0)
+    cache_write_tokens = usage.get("cache_write_tokens", 0)
 
     cost = 0.0
     try:
@@ -258,6 +251,7 @@ def _parse_model_response(model: str, result, headers_dict) -> dict:
     return {
         "model": model, "verdict": verdict, "text": text,
         "tokens_in": prompt_tokens, "tokens_out": completion_tokens,
+        "cached_tokens": cached_tokens, "cache_write_tokens": cache_write_tokens,
         "cost_estimate": cost,
     }
 
@@ -272,8 +266,12 @@ def _emit_usage_event(review_result: dict, ctx: ToolContext) -> None:
         "usage": {
             "prompt_tokens": review_result["tokens_in"],
             "completion_tokens": review_result["tokens_out"],
+            "cached_tokens": review_result.get("cached_tokens", 0),
+            "cache_write_tokens": review_result.get("cache_write_tokens", 0),
             "cost": review_result["cost_estimate"],
         },
+        "provider": "openrouter",
+        "source": "review",
         "category": "review",
     }
     if ctx.event_queue is not None:

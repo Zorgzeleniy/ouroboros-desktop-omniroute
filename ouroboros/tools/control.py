@@ -9,6 +9,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ouroboros.task_results import (
+    STATUS_CANCELLED,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_INTERRUPTED,
+    STATUS_REJECTED_DUPLICATE,
+    STATUS_REQUESTED,
+    load_task_result,
+    write_task_result,
+)
 from ouroboros.tools.registry import ToolContext, ToolEntry
 from ouroboros.utils import utc_now_iso, write_text, run_cmd
 
@@ -67,7 +77,19 @@ def _schedule_task(ctx: ToolContext, description: str, context: str = "", parent
     if parent_task_id:
         evt["parent_task_id"] = parent_task_id
     ctx.pending_events.append(evt)
-    return f"Scheduled task {tid}: {description}"
+    try:
+        write_task_result(
+            ctx.drive_root,
+            tid,
+            STATUS_REQUESTED,
+            parent_task_id=parent_task_id or None,
+            description=description,
+            context=context,
+            result="Task request queued. Awaiting supervisor acceptance.",
+        )
+    except Exception:
+        log.warning("Failed to persist requested task status for %s", tid, exc_info=True)
+    return f"Task request queued {tid}: {description}"
 
 
 def _cancel_task(ctx: ToolContext, task_id: str) -> str:
@@ -228,16 +250,23 @@ def _switch_model(ctx: ToolContext, model: str = "", effort: str = "") -> str:
 
 def _get_task_result(ctx: ToolContext, task_id: str) -> str:
     """Read the result of a completed subtask."""
-    results_dir = Path(ctx.drive_root) / "task_results"
-    result_file = results_dir / f"{task_id}.json"
-    if not result_file.exists():
-        return f"Task {task_id}: not found or not yet completed"
-    data = json.loads(result_file.read_text())
+    data = load_task_result(ctx.drive_root, task_id)
+    if not data:
+        return f"Task {task_id}: unknown or not yet registered"
     status = data.get("status", "unknown")
     result = data.get("result", "")
     cost = data.get("cost_usd", 0)
     trace = data.get("trace_summary", "")
-    output = f"Task {task_id} [{status}]: cost=${cost:.2f}\n\n[BEGIN_SUBTASK_OUTPUT]\n{result}\n[END_SUBTASK_OUTPUT]"
+    if status == STATUS_COMPLETED:
+        output = f"Task {task_id} [{status}]: cost=${cost:.2f}\n\n[BEGIN_SUBTASK_OUTPUT]\n{result}\n[END_SUBTASK_OUTPUT]"
+    elif status == STATUS_REJECTED_DUPLICATE:
+        duplicate_of = str(data.get("duplicate_of") or "?")
+        output = (
+            f"Task {task_id} [{status}]: duplicate_of={duplicate_of}\n\n"
+            f"{result or f'Task was rejected as a duplicate of {duplicate_of}.'}"
+        )
+    else:
+        output = f"Task {task_id} [{status}]: {result or 'No details available.'}"
     if trace:
         output += f"\n\n[SUBTASK_TRACE]\n{trace}\n[/SUBTASK_TRACE]"
     return output
@@ -245,11 +274,7 @@ def _get_task_result(ctx: ToolContext, task_id: str) -> str:
 
 def _wait_for_task(ctx: ToolContext, task_id: str) -> str:
     """Check if a subtask has completed. Call repeatedly to poll."""
-    results_dir = Path(ctx.drive_root) / "task_results"
-    result_file = results_dir / f"{task_id}.json"
-    if result_file.exists():
-        return _get_task_result(ctx, task_id)
-    return f"Task {task_id}: still running. Call again later to check."
+    return _get_task_result(ctx, task_id)
 
 
 def get_tools() -> List[ToolEntry]:

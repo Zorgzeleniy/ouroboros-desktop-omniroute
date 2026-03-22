@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Protocol
 
 
 CORE_TOOL_NAMES = frozenset({
-    "repo_read", "repo_list", "repo_write", "repo_write_commit", "repo_commit",
+    "repo_read", "repo_list", "repo_write", "repo_write_commit", "repo_commit", "str_replace_editor",
     "data_read", "data_list", "data_write",
     "run_shell", "claude_code_edit",
     "git_status", "git_diff",

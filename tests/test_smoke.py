@@ -85,7 +85,7 @@ def test_tool_set_matches(registry):
 
 
 EXPECTED_TOOLS = [
-    "repo_read", "repo_write", "repo_write_commit", "repo_list", "repo_commit",
+    "repo_read", "repo_write", "repo_write_commit", "repo_list", "repo_commit", "str_replace_editor",
     "data_read", "data_write", "data_list",
     "git_status", "git_diff",
     "pull_from_remote", "restore_to_head", "revert_commit",

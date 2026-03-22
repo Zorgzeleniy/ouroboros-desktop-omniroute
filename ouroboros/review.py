@@ -144,9 +144,10 @@ def collect_sections(
     total_chars = 0
     truncated = 0
     dropped = 0
+    dropped_paths: List[str] = []
 
     def _walk(root: pathlib.Path, prefix: str, skip_dirs: set) -> None:
-        nonlocal total_chars, truncated, dropped
+        nonlocal total_chars, truncated, dropped, dropped_paths
         try:
             root_resolved = root.resolve()
             if not root_resolved.exists():
@@ -172,6 +173,8 @@ def collect_sections(
                         truncated += 1
                     if total_chars >= max_total_chars:
                         dropped += 1
+                        if len(dropped_paths) < 20:
+                            dropped_paths.append(f"{prefix}/{rel}")
                         continue
                     if (total_chars + len(content)) > max_total_chars:
                         content = clip_text(content, max(2000, max_total_chars - total_chars))
@@ -186,8 +189,13 @@ def collect_sections(
     # Only scan memory/ — identity, scratchpad, knowledge base (not logs/state/artifacts)
     _walk(drive_root / "memory", "drive/memory", set())
 
-    stats = {"files": len(sections), "chars": total_chars,
-             "truncated": truncated, "dropped": dropped}
+    stats = {
+        "files": len(sections),
+        "chars": total_chars,
+        "truncated": truncated,
+        "dropped": dropped,
+        "dropped_paths": dropped_paths,
+    }
     return sections, stats
 
 

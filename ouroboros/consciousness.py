@@ -258,10 +258,12 @@ class BackgroundConsciousness:
 
                 # Report usage to supervisor
                 if self._event_queue is not None:
+                    provider = "local" if _use_local_light else "openrouter"
+                    model_name = f"{model} (local)" if _use_local_light else model
                     self._event_queue.put({
                         "type": "llm_usage",
-                        "provider": "openrouter",
-                        "model": model,
+                        "provider": provider,
+                        "model": model_name,
                         "usage": usage,
                         "cost": cost,
                         "source": "consciousness",
@@ -408,17 +410,17 @@ class BackgroundConsciousness:
             if patterns_text.strip():
                 parts.append("## Pattern Register\n\n" + clip_text(patterns_text, 30000))
 
+        # Health invariants
+        health_section = build_health_invariants(env)
+        if health_section:
+            parts.append(health_section)
+
         # Drive state
         state_json = safe_read(env.drive_path("state/state.json"), fallback="{}")
         parts.append("## Drive state\n\n" + clip_text(state_json, 90000))
 
         # Runtime section (same as main agent)
         parts.append(build_runtime_section(env, bg_task))
-
-        # Health invariants
-        health_section = build_health_invariants(env)
-        if health_section:
-            parts.append(health_section)
 
         # Recent sections — empty task_id so we get ALL tasks' progress/tools/events
         parts.extend(build_recent_sections(memory, env, task_id=""))

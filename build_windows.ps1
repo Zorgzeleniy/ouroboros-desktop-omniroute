@@ -23,6 +23,9 @@ Write-Host "--- Installing agent dependencies into python-standalone ---"
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 
+$env:PYINSTALLER_CONFIG_DIR = Join-Path (Get-Location) ".pyinstaller-cache"
+New-Item -ItemType Directory -Force -Path $env:PYINSTALLER_CONFIG_DIR | Out-Null
+
 Write-Host "--- Running PyInstaller ---"
 python -m PyInstaller Ouroboros.spec --clean --noconfirm
 

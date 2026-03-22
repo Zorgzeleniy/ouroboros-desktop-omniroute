@@ -230,8 +230,39 @@ def _format_commit_result(ctx, commit_message, push_status, test_warning):
 
 # --- Tool implementations ---
 
+def _check_shrink_guard(ctx: ToolContext, file_path: str, new_content: str, force: bool = False) -> Optional[str]:
+    """Return a warning string if writing new_content would shrink a tracked file by >30%. None if OK."""
+    if force:
+        return None
+    try:
+        target = ctx.repo_path(file_path)
+        if not target.exists():
+            return None
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", safe_relpath(file_path)],
+            cwd=str(ctx.repo_dir), capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return None
+        old_content = target.read_text(encoding="utf-8")
+        old_len = len(old_content)
+        new_len = len(new_content)
+        if old_len > 0 and new_len < old_len * 0.7:
+            pct = round(new_len / old_len * 100)
+            return (
+                f"⚠️ WRITE_BLOCKED: new content for '{file_path}' is {pct}% of original "
+                f"({old_len} -> {new_len} chars). This looks like accidental truncation. "
+                f"Use str_replace_editor for surgical edits, or pass force=true to confirm "
+                f"intentional rewrite."
+            )
+    except Exception:
+        pass
+    return None
+
+
 def _repo_write(ctx: ToolContext, path: str = "", content: str = "",
-                files: Optional[List[Dict[str, str]]] = None) -> str:
+                files: Optional[List[Dict[str, str]]] = None,
+                force: bool = False) -> str:
     """Write file(s) to the repo working directory without committing.
 
     Use repo_commit afterwards to stage, review, and commit all changes together.
@@ -269,6 +300,9 @@ def _repo_write(ctx: ToolContext, path: str = "", content: str = "",
 
     written = []
     for e in write_list:
+        shrink_warning = _check_shrink_guard(ctx, e["path"], e["content"], force=force)
+        if shrink_warning:
+            return shrink_warning
         try:
             target = ctx.repo_path(e["path"])
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -288,6 +322,78 @@ def _repo_write(ctx: ToolContext, path: str = "", content: str = "",
     )
 
 
+def _str_replace_editor(ctx: ToolContext, path: str, old_str: str, new_str: str) -> str:
+    """Replace exactly one occurrence of old_str with new_str in a file.
+
+    Safer than repo_write for existing files: reads the file, verifies old_str
+    appears exactly once, performs the replacement, and writes back.
+    """
+    if not path or not path.strip():
+        return "⚠️ STR_REPLACE_ERROR: path is required."
+    if not old_str:
+        return "⚠️ STR_REPLACE_ERROR: old_str is required (cannot be empty)."
+
+    norm = os.path.normpath(path.strip().lstrip("./"))
+    if norm in SAFETY_CRITICAL_PATHS:
+        return (
+            f"⚠️ SAFETY_VIOLATION: Cannot edit safety-critical file: {norm}. "
+            f"Protected: {', '.join(sorted(SAFETY_CRITICAL_PATHS))}"
+        )
+
+    try:
+        target = ctx.repo_path(path)
+    except ValueError as e:
+        return f"⚠️ PATH_ERROR: {e}"
+
+    if not target.exists():
+        return f"⚠️ STR_REPLACE_ERROR: file not found: {path}"
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except Exception as e:
+        return f"⚠️ STR_REPLACE_ERROR: cannot read {path}: {e}"
+
+    count = content.count(old_str)
+    if count == 0:
+        preview = content[:2000]
+        return (
+            f"⚠️ STR_REPLACE_ERROR: old_str not found in {path}.\n"
+            f"File preview (first 2000 chars):\n{preview}"
+        )
+    if count > 1:
+        positions = []
+        start = 0
+        for i in range(min(count, 5)):
+            idx = content.index(old_str, start)
+            line_num = content[:idx].count('\n') + 1
+            positions.append(f"line {line_num}")
+            start = idx + 1
+        return (
+            f"⚠️ STR_REPLACE_ERROR: old_str found {count} times in {path} "
+            f"(must be unique). Occurrences at: {', '.join(positions)}. "
+            f"Include more surrounding context in old_str to make it unique."
+        )
+
+    new_content = content.replace(old_str, new_str, 1)
+    try:
+        write_text(target, new_content)
+    except Exception as e:
+        return f"⚠️ STR_REPLACE_ERROR: write failed for {path}: {e}"
+
+    replacement_line = new_content[:new_content.index(new_str)].count('\n') + 1
+    context_start = max(0, replacement_line - 3)
+    context_lines = new_content.splitlines()[context_start:replacement_line + len(new_str.splitlines()) + 2]
+    context_preview = "\n".join(
+        f"{context_start + i + 1:>4}| {line}" for i, line in enumerate(context_lines)
+    )
+
+    return (
+        f"✅ Replaced in {path} (line {replacement_line}).\n"
+        f"Context:\n{context_preview}\n\n"
+        "File is on disk but NOT committed. Run repo_commit when ready."
+    )
+
+
 def _repo_write_commit(ctx: ToolContext, path: str, content: str,
                         commit_message: str, skip_tests: bool = False,
                         also_stage: Optional[List[str]] = None) -> str:
@@ -302,6 +408,9 @@ def _repo_write_commit(ctx: ToolContext, path: str, content: str,
             "⚠️ ERROR: content looks like a compaction marker, not real file content. "
             "Re-read the file and provide the actual content."
         )
+    shrink_warning = _check_shrink_guard(ctx, path, content)
+    if shrink_warning:
+        return shrink_warning
     lock = _acquire_git_lock(ctx)
     test_warning_ref = [""]
     try:
@@ -673,8 +782,23 @@ def get_tools() -> List[ToolEntry]:
                     "path": {"type": "string"}, "content": {"type": "string"},
                 }, "required": ["path", "content"]},
                     "description": "Array of {path, content} pairs (multi-file mode)."},
+                "force": {"type": "boolean", "default": False, "description": "Bypass shrink guard for intentional full rewrites."},
             }, "required": []},
         }, _repo_write, is_code_tool=True),
+        ToolEntry("str_replace_editor", {
+            "name": "str_replace_editor",
+            "description": (
+                "Surgical edit: replace exactly one occurrence of old_str with new_str in a file. "
+                "Safer than repo_write for existing files — reads the file, verifies the match is unique, "
+                "performs the replacement, and shows context. Use for all edits to existing tracked files. "
+                "For new files or intentional full rewrites, use repo_write instead."
+            ),
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "File path relative to repo root"},
+                "old_str": {"type": "string", "description": "Exact string to find (must appear exactly once)"},
+                "new_str": {"type": "string", "description": "Replacement string"},
+            }, "required": ["path", "old_str", "new_str"]},
+        }, _str_replace_editor, is_code_tool=True),
         ToolEntry("repo_write_commit", {
             "name": "repo_write_commit",
             "description": (

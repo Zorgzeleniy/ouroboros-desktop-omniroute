@@ -18,6 +18,7 @@ import pathlib
 from typing import Tuple, Dict, Any, List, Optional
 
 from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
+from ouroboros.pricing import emit_llm_usage_event, estimate_cost
 from supervisor.state import update_budget_from_usage
 
 log = logging.getLogger(__name__)
@@ -86,7 +87,8 @@ def _format_messages_for_safety(messages: List[Dict[str, Any]]) -> str:
             )
         text = str(content)
         if len(text) > 500:
-            text = text[:500] + "..."
+            omitted = len(text) - 500
+            text = text[:500] + f" [...{omitted} chars omitted]"
         parts.append(f"[{role}] {text}")
     return "\n".join(parts)
 
@@ -119,6 +121,7 @@ def check_safety(
     tool_name: str,
     arguments: Dict[str, Any],
     messages: Optional[List[Dict[str, Any]]] = None,
+    ctx: Optional[Any] = None,
 ) -> Tuple[bool, str]:
     """Check if a tool call is safe to execute.
 
@@ -152,7 +155,28 @@ def check_safety(
             use_local=_use_local_light,
         )
         if usage:
-            update_budget_from_usage(usage)
+            model_name = f"{light_model} (local)" if _use_local_light else light_model
+            cost = float(usage.get("cost") or 0.0)
+            if not _use_local_light and cost == 0.0:
+                cost = estimate_cost(
+                    light_model,
+                    int(usage.get("prompt_tokens") or 0),
+                    int(usage.get("completion_tokens") or 0),
+                    int(usage.get("cached_tokens") or 0),
+                    int(usage.get("cache_write_tokens") or 0),
+                )
+            _eq = getattr(ctx, "event_queue", None) if ctx is not None else None
+            if _eq is not None:
+                emit_llm_usage_event(
+                    _eq,
+                    getattr(ctx, "task_id", "") if ctx is not None else "",
+                    model_name, usage, cost,
+                    category="safety",
+                    provider="local" if _use_local_light else "openrouter",
+                    source="safety_light",
+                )
+            else:
+                update_budget_from_usage(usage)
 
         result = _parse_safety_response(msg.get("content") or "")
         if result:
@@ -190,7 +214,28 @@ def check_safety(
             use_local=_use_local_code,
         )
         if usage:
-            update_budget_from_usage(usage)
+            model_name = f"{heavy_model} (local)" if _use_local_code else heavy_model
+            cost = float(usage.get("cost") or 0.0)
+            if not _use_local_code and cost == 0.0:
+                cost = estimate_cost(
+                    heavy_model,
+                    int(usage.get("prompt_tokens") or 0),
+                    int(usage.get("completion_tokens") or 0),
+                    int(usage.get("cached_tokens") or 0),
+                    int(usage.get("cache_write_tokens") or 0),
+                )
+            _eq = getattr(ctx, "event_queue", None) if ctx is not None else None
+            if _eq is not None:
+                emit_llm_usage_event(
+                    _eq,
+                    getattr(ctx, "task_id", "") if ctx is not None else "",
+                    model_name, usage, cost,
+                    category="safety",
+                    provider="local" if _use_local_code else "openrouter",
+                    source="safety_deep",
+                )
+            else:
+                update_budget_from_usage(usage)
 
         result = _parse_safety_response(msg.get("content") or "")
         if result is None:

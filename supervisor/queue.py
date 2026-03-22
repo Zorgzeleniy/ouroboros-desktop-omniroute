@@ -143,6 +143,8 @@ def persist_queue_snapshot(reason: str = "") -> None:
             "task": {
                 "id": t.get("id"), "type": t.get("type"), "chat_id": t.get("chat_id"),
                 "text": t.get("text"), "priority": t.get("priority"),
+                "depth": t.get("depth"), "description": t.get("description"),
+                "context": t.get("context"), "parent_task_id": t.get("parent_task_id"),
                 "_attempt": t.get("_attempt"), "review_reason": t.get("review_reason"),
                 "review_source_task_id": t.get("review_source_task_id"),
             },
@@ -228,20 +230,34 @@ def restore_pending_from_snapshot(max_age_sec: int = 900) -> int:
 
 def cancel_task_by_id(task_id: str) -> bool:
     """Cancel a task by ID (from PENDING or RUNNING)."""
-    # Import here to avoid circular dependency during module load
     from supervisor import workers
 
     with _queue_lock:
         for i, t in enumerate(list(PENDING)):
             if t["id"] == task_id:
                 PENDING.pop(i)
+                try:
+                    from ouroboros.task_results import STATUS_CANCELLED, write_task_result
+                    write_task_result(
+                        DRIVE_ROOT, task_id, STATUS_CANCELLED,
+                        result="Task cancelled by user/agent request.",
+                    )
+                except Exception:
+                    pass
                 persist_queue_snapshot(reason="cancel_pending")
                 return True
 
-        # For RUNNING tasks, need to terminate worker
         for w in workers.WORKERS.values():
             if w.busy_task_id == task_id:
                 RUNNING.pop(task_id, None)
+                try:
+                    from ouroboros.task_results import STATUS_CANCELLED, write_task_result
+                    write_task_result(
+                        DRIVE_ROOT, task_id, STATUS_CANCELLED,
+                        result="Running task cancelled and worker terminated.",
+                    )
+                except Exception:
+                    pass
                 if w.proc.is_alive():
                     w.proc.terminate()
                 w.proc.join(timeout=5)
@@ -311,6 +327,15 @@ def enforce_task_timeouts() -> None:
                 log.warning("Failed to terminate worker %d during hard timeout", worker_id, exc_info=True)
                 pass
             workers.respawn_worker(worker_id)
+
+        try:
+            from ouroboros.task_results import STATUS_FAILED, write_task_result
+            write_task_result(
+                DRIVE_ROOT, task_id, STATUS_FAILED,
+                result=f"Task killed by hard timeout after {int(runtime_sec)}s.",
+            )
+        except Exception:
+            pass
 
         requeued = False
         new_attempt = attempt

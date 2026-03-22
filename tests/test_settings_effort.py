@@ -56,8 +56,8 @@ def test_review_models_default_in_config():
 
 
 def test_review_enforcement_default_in_config():
-    """OUROBOROS_REVIEW_ENFORCEMENT defaults to blocking."""
-    assert SETTINGS_DEFAULTS.get("OUROBOROS_REVIEW_ENFORCEMENT") == "blocking"
+    """OUROBOROS_REVIEW_ENFORCEMENT defaults to advisory."""
+    assert SETTINGS_DEFAULTS.get("OUROBOROS_REVIEW_ENFORCEMENT") == "advisory"
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ def test_get_review_models_empty_env_falls_back_to_default(monkeypatch):
 def test_get_review_enforcement_default(monkeypatch):
     """get_review_enforcement() returns the config default when env is unset."""
     monkeypatch.delenv("OUROBOROS_REVIEW_ENFORCEMENT", raising=False)
-    assert get_review_enforcement() == "blocking"
+    assert get_review_enforcement() == "advisory"
 
 
 def test_get_review_enforcement_custom(monkeypatch):
@@ -104,9 +104,9 @@ def test_get_review_enforcement_custom(monkeypatch):
 
 
 def test_get_review_enforcement_invalid_falls_back(monkeypatch):
-    """Unknown values fall back to blocking."""
+    """Unknown values fall back to advisory (the default)."""
     monkeypatch.setenv("OUROBOROS_REVIEW_ENFORCEMENT", "strictest")
-    assert get_review_enforcement() == "blocking"
+    assert get_review_enforcement() == "advisory"
 
 
 def test_apply_settings_clears_review_models_restores_default(monkeypatch):
@@ -127,7 +127,7 @@ def test_apply_settings_clears_review_enforcement_restores_default(monkeypatch):
     apply_settings_to_env(settings)
     env_val = os.environ.get("OUROBOROS_REVIEW_ENFORCEMENT", "")
     assert env_val == SETTINGS_DEFAULTS["OUROBOROS_REVIEW_ENFORCEMENT"]
-    assert get_review_enforcement() == "blocking"
+    assert get_review_enforcement() == "advisory"
 
 
 # ---------------------------------------------------------------------------

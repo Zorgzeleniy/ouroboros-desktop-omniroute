@@ -25,6 +25,15 @@ def _codebase_health(ctx: ToolContext) -> str:
         lines = []
         lines.append("## Codebase Health Report\n")
         lines.append(f"**Analyzed:** {stats['files']} files, {stats['chars']:,} chars")
+        if stats.get("truncated"):
+            lines.append(f"**Compacted files:** {stats['truncated']}")
+        if stats.get("dropped"):
+            dropped_paths = stats.get("dropped_paths") or []
+            preview = ", ".join(dropped_paths[:5])
+            lines.append(
+                f"**Dropped files due review budget:** {stats['dropped']}"
+                + (f" ({preview}{' ...' if len(dropped_paths) > 5 else ''})" if preview else "")
+            )
         lines.append(f"**Files:** {metrics['total_files']} ({metrics['py_files']} Python)")
         lines.append(f"**Total lines:** {metrics['total_lines']:,}")
         lines.append(f"**Functions:** {metrics['total_functions']}")

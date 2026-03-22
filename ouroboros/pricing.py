@@ -104,17 +104,28 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int,
     return round(cost, 6)
 
 
+def _normalize_model_name(model: str) -> str:
+    text = str(model or "").strip()
+    if text.endswith(" (local)"):
+        return text[:-8]
+    return text
+
+
 def infer_api_key_type(model: str) -> str:
     """Infer which API key is used based on model name."""
-    if model.startswith(("anthropic/", "google/", "openai/", "x-ai/", "qwen/")):
+    normalized = _normalize_model_name(model)
+    if str(model or "").endswith(" (local)"):
+        return "local"
+    if normalized.startswith(("anthropic/", "google/", "openai/", "x-ai/", "qwen/")):
         return "openrouter"
-    if "claude" in model.lower():
+    if "claude" in normalized.lower():
         return "anthropic"
     return "openrouter"
 
 
 def infer_model_category(model: str) -> str:
     """Infer model category by comparing against configured model env vars."""
+    normalized = _normalize_model_name(model)
     configured = {
         "main": os.environ.get("OUROBOROS_MODEL", ""),
         "code": os.environ.get("OUROBOROS_MODEL_CODE", ""),
@@ -122,7 +133,7 @@ def infer_model_category(model: str) -> str:
         "fallback": os.environ.get("OUROBOROS_MODEL_FALLBACK", ""),
     }
     for cat, val in configured.items():
-        if val and model == val:
+        if val and normalized == val:
             return cat
     return "other"
 
@@ -134,6 +145,8 @@ def emit_llm_usage_event(
     usage: Dict[str, Any],
     cost: float,
     category: str = "task",
+    provider: Optional[str] = None,
+    source: str = "loop",
 ) -> None:
     """
     Emit llm_usage event to the event queue.
@@ -149,6 +162,7 @@ def emit_llm_usage_event(
     if not event_queue:
         return
     try:
+        resolved_provider = provider or ("local" if str(model or "").endswith(" (local)") else "openrouter")
         event_queue.put_nowait({
             "type": "llm_usage",
             "ts": utc_now_iso(),
@@ -156,6 +170,8 @@ def emit_llm_usage_event(
             "model": model,
             "api_key_type": infer_api_key_type(model),
             "model_category": infer_model_category(model),
+            "provider": resolved_provider,
+            "source": source,
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
             "cached_tokens": int(usage.get("cached_tokens") or 0),

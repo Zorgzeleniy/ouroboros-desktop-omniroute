@@ -20,6 +20,9 @@ python-standalone/bin/pip3 install -q -r requirements.txt
 
 rm -rf build dist
 
+export PYINSTALLER_CONFIG_DIR="$PWD/.pyinstaller-cache"
+mkdir -p "$PYINSTALLER_CONFIG_DIR"
+
 echo "--- Running PyInstaller ---"
 python -m PyInstaller Ouroboros.spec --clean --noconfirm
 

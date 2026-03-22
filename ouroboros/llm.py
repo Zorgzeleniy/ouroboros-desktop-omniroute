@@ -12,11 +12,119 @@ import logging
 import os
 import re
 import time
+import copy
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger(__name__)
 
 DEFAULT_LIGHT_MODEL = "anthropic/claude-sonnet-4.6"
+
+
+class LocalContextTooLargeError(RuntimeError):
+    """Raised when a local model cannot fit context without silent truncation."""
+
+
+def _estimate_message_chars(messages: List[Dict[str, Any]]) -> int:
+    total = 0
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            total += sum(len(str(block.get("text", ""))) for block in content if isinstance(block, dict))
+        else:
+            total += len(str(content or ""))
+    return total
+
+
+def _split_markdown_sections(text: str) -> Tuple[str, List[Tuple[str, str]]]:
+    lines = str(text or "").splitlines()
+    preamble: List[str] = []
+    sections: List[Tuple[str, str]] = []
+    current_title: Optional[str] = None
+    current_lines: List[str] = []
+
+    for line in lines:
+        if line.startswith("## "):
+            if current_title is None:
+                preamble = current_lines[:]
+            else:
+                sections.append((current_title, "\n".join(current_lines).strip()))
+            current_title = line[3:].strip()
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+
+    if current_title is None:
+        return "\n".join(lines).strip(), []
+
+    sections.append((current_title, "\n".join(current_lines).strip()))
+    return "\n".join(preamble).strip(), sections
+
+
+def _compact_markdown_sections(
+    text: str,
+    preserve_titles: Set[str],
+    reason: str,
+) -> str:
+    preamble, sections = _split_markdown_sections(text)
+    if not sections:
+        return text
+
+    parts: List[str] = []
+    if preamble:
+        parts.append(preamble)
+
+    for title, section in sections:
+        if title in preserve_titles:
+            parts.append(section)
+            continue
+        omitted_chars = max(0, len(section))
+        parts.append(
+            f"## {title}\n\n"
+            f"[Compacted for local-model context: omitted {omitted_chars} chars. {reason}]"
+        )
+
+    return "\n\n".join(p for p in parts if p).strip()
+
+
+def _compact_local_static_text(text: str) -> str:
+    return _compact_markdown_sections(
+        text,
+        preserve_titles={"BIBLE.md"},
+        reason="Use a larger-context model or read the source file directly if this section becomes necessary.",
+    )
+
+
+def _compact_local_semi_stable_text(text: str) -> str:
+    return _compact_markdown_sections(
+        text,
+        preserve_titles={"Scratchpad", "Identity"},
+        reason="Scratchpad and Identity were preserved; non-core memory sections were compacted for local execution.",
+    )
+
+
+def _compact_local_dynamic_text(text: str) -> str:
+    return _compact_markdown_sections(
+        text,
+        preserve_titles={"Drive state", "Runtime context", "Health Invariants"},
+        reason="Recent/history-heavy sections were compacted for local execution.",
+    )
+
+
+def _compact_local_system_text(text: str) -> str:
+    return _compact_markdown_sections(
+        text,
+        preserve_titles={
+            "BIBLE.md",
+            "Scratchpad",
+            "Identity",
+            "Drive state",
+            "Runtime context",
+            "Health Invariants",
+            "Recent observations",
+            "Background consciousness info",
+        },
+        reason="Non-core sections were compacted for local execution.",
+    )
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -117,6 +225,8 @@ class LLMClient:
         self._base_url = base_url
         self._client = None
         self._client_api_key: Optional[str] = None
+        self._async_client = None
+        self._async_client_api_key: Optional[str] = None
         self._local_client = None
         self._local_port: Optional[int] = None
 
@@ -151,6 +261,25 @@ class LLMClient:
             )
             self._local_port = port
         return self._local_client
+
+    def _get_async_client(self):
+        current_api_key = self._api_key_override
+        if current_api_key is None:
+            current_api_key = os.environ.get("OPENROUTER_API_KEY", "")
+
+        if self._async_client is None or self._async_client_api_key != current_api_key:
+            from openai import AsyncOpenAI
+            self._async_client = AsyncOpenAI(
+                base_url=self._base_url,
+                api_key=current_api_key,
+                max_retries=0,
+                default_headers={
+                    "HTTP-Referer": "https://ouroboros.local/",
+                    "X-Title": "Ouroboros",
+                },
+            )
+            self._async_client_api_key = current_api_key
+        return self._async_client
 
     @staticmethod
     def _strip_cache_control(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -198,6 +327,7 @@ class LLMClient:
         max_tokens: int = 16384,
         tool_choice: str = "auto",
         use_local: bool = False,
+        temperature: Optional[float] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Single LLM call. Returns: (response_message_dict, usage_dict with cost).
 
@@ -207,7 +337,68 @@ class LLMClient:
         if use_local:
             return self._chat_local(messages, tools, max_tokens, tool_choice)
 
-        return self._chat_openrouter(messages, model, tools, reasoning_effort, max_tokens, tool_choice)
+        return self._chat_openrouter(messages, model, tools, reasoning_effort, max_tokens, tool_choice, temperature)
+
+    async def chat_async(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        reasoning_effort: str = "medium",
+        max_tokens: int = 16384,
+        tool_choice: str = "auto",
+        temperature: Optional[float] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Async OpenRouter chat used by review/concurrent callers."""
+        if tools:
+            raise ValueError("chat_async does not support tool calls")
+        client = self._get_async_client()
+        kwargs = self._build_openrouter_kwargs(
+            messages, model, tools, reasoning_effort, max_tokens, tool_choice, temperature
+        )
+        resp = await client.chat.completions.create(**kwargs)
+        return self._normalize_openrouter_response(resp.model_dump())
+
+    def _prepare_messages_for_local_context(
+        self,
+        messages: List[Dict[str, Any]],
+        ctx_len: int,
+        max_tokens: int,
+    ) -> List[Dict[str, Any]]:
+        available_tokens = max(256, ctx_len - max_tokens - 64)
+        target_chars = available_tokens * 3
+        total_chars = _estimate_message_chars(messages)
+        if total_chars <= target_chars:
+            return messages
+
+        compacted = copy.deepcopy(messages)
+        for msg in compacted:
+            if msg.get("role") != "system":
+                continue
+            content = msg.get("content")
+            if isinstance(content, list):
+                for idx, block in enumerate(content):
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        continue
+                    block_text = str(block.get("text", ""))
+                    if idx == 0:
+                        block["text"] = _compact_local_static_text(block_text)
+                    elif idx == 1:
+                        block["text"] = _compact_local_semi_stable_text(block_text)
+                    else:
+                        block["text"] = _compact_local_dynamic_text(block_text)
+            elif isinstance(content, str):
+                msg["content"] = _compact_local_system_text(content)
+            break
+
+        compacted_chars = _estimate_message_chars(compacted)
+        if compacted_chars <= target_chars:
+            return compacted
+
+        raise LocalContextTooLargeError(
+            f"Local model context too large after safe compaction "
+            f"({compacted_chars} chars > target {target_chars})."
+        )
 
     def _chat_local(
         self,
@@ -221,6 +412,19 @@ class LLMClient:
 
         clean_messages = self._strip_cache_control(messages)
         # Flatten multipart content blocks to plain strings (local server doesn't support arrays)
+        local_max = min(max_tokens, 2048)
+        ctx_len = 0
+        try:
+            from ouroboros.local_model import get_manager
+            ctx_len = get_manager().get_context_length()
+            if ctx_len > 0:
+                local_max = min(max_tokens, max(256, ctx_len // 4))
+        except Exception:
+            pass
+
+        if ctx_len > 0:
+            clean_messages = self._prepare_messages_for_local_context(clean_messages, ctx_len, local_max)
+
         for msg in clean_messages:
             content = msg.get("content")
             if isinstance(content, list):
@@ -235,20 +439,6 @@ class LLMClient:
                 {k: v for k, v in t.items() if k != "cache_control"}
                 for t in tools
             ]
-
-        # Cap max_tokens to fit within the model's context window
-        local_max = min(max_tokens, 2048)
-        ctx_len = 0
-        try:
-            from ouroboros.local_model import get_manager
-            ctx_len = get_manager().get_context_length()
-            if ctx_len > 0:
-                local_max = min(max_tokens, max(256, ctx_len // 4))
-        except Exception:
-            pass
-
-        if ctx_len > 0:
-            self._truncate_messages_for_context(clean_messages, ctx_len, local_max)
 
         kwargs: Dict[str, Any] = {
             "model": "local-model",
@@ -268,10 +458,8 @@ class LLMClient:
             except Exception as exc:
                 last_exc = exc
                 err = str(exc)
-                if "context_length_exceeded" in err and attempt < 2:
-                    log.warning("Context overflow (attempt %d), truncating: %s", attempt + 1, err)
-                    self._shrink_messages_from_error(clean_messages, err)
-                    continue
+                if "context_length_exceeded" in err:
+                    raise LocalContextTooLargeError(err) from exc
                 log.warning("Local model request failed: %s", exc)
                 raise
         if last_exc is not None:
@@ -430,7 +618,7 @@ class LLMClient:
                     log.info("Retry-truncated system message to %d chars (ratio=%.2f)", new_len, ratio)
                 return
 
-    def _chat_openrouter(
+    def _build_openrouter_kwargs(
         self,
         messages: List[Dict[str, Any]],
         model: str,
@@ -438,20 +626,16 @@ class LLMClient:
         reasoning_effort: str,
         max_tokens: int,
         tool_choice: str,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Send a chat request to OpenRouter."""
-        client = self._get_client()
+        temperature: Optional[float],
+    ) -> Dict[str, Any]:
         effort = normalize_reasoning_effort(reasoning_effort)
 
         extra_body: Dict[str, Any] = {
             "reasoning": {"effort": effort, "exclude": True},
         }
 
-        # Pin Anthropic models to Anthropic provider for prompt caching
         if model.startswith("anthropic/"):
             extra_body["provider"] = {
-                "order": ["Anthropic"],
-                "allow_fallbacks": False,
                 "require_parameters": True,
             }
 
@@ -461,6 +645,8 @@ class LLMClient:
             "max_tokens": max_tokens,
             "extra_body": extra_body,
         }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         if tools:
             tools_with_cache = [t for t in tools]  # shallow copy
             if tools_with_cache:
@@ -469,9 +655,12 @@ class LLMClient:
                 tools_with_cache[-1] = last_tool
             kwargs["tools"] = tools_with_cache
             kwargs["tool_choice"] = tool_choice
+        return kwargs
 
-        resp = client.chat.completions.create(**kwargs)
-        resp_dict = resp.model_dump()
+    def _normalize_openrouter_response(
+        self,
+        resp_dict: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         usage = resp_dict.get("usage") or {}
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}
@@ -498,6 +687,24 @@ class LLMClient:
                     usage["cost"] = cost
 
         return msg, usage
+
+    def _chat_openrouter(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]],
+        reasoning_effort: str,
+        max_tokens: int,
+        tool_choice: str,
+        temperature: Optional[float] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Send a chat request to OpenRouter."""
+        client = self._get_client()
+        kwargs = self._build_openrouter_kwargs(
+            messages, model, tools, reasoning_effort, max_tokens, tool_choice, temperature
+        )
+        resp = client.chat.completions.create(**kwargs)
+        return self._normalize_openrouter_response(resp.model_dump())
 
     def vision_query(
         self,

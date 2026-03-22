@@ -319,27 +319,23 @@ def worker_main(wid: int, in_q: Any, out_q: Any, repo_dir: str, drive_root: str)
             _log_worker_crash(wid, _drive, "handle_task", _e, _tb.format_exc())
 
 
-def _write_failure_result(task_id: str) -> None:
+def _write_failure_result(task_id: str, reason: str = "Worker process crashed (crash storm). Task was not completed.") -> None:
     """Write a failure result file for a crashed/orphaned task (zombie prevention)."""
     if not task_id:
         return
     try:
-        results_dir = DRIVE_ROOT / "task_results"
-        results_dir.mkdir(parents=True, exist_ok=True)
-        final_path = results_dir / f"{task_id}.json"
-        if final_path.exists():
-            return  # Don't overwrite — may be a successful completion from just before the crash
-        result = {
-            "task_id": task_id,
-            "status": "failed",
-            "result": "Worker process crashed (crash storm). Task was not completed.",
-            "cost_usd": 0,
-            "total_rounds": 0,
-            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        }
-        tmp_path = results_dir / f"{task_id}.json.tmp"
-        tmp_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-        os.rename(str(tmp_path), str(final_path))
+        from ouroboros.task_results import STATUS_FAILED, load_task_result, write_task_result
+        existing = load_task_result(DRIVE_ROOT, task_id)
+        if existing and existing.get("status") in ("completed", "failed"):
+            return
+        write_task_result(
+            DRIVE_ROOT,
+            task_id,
+            STATUS_FAILED,
+            result=reason,
+            cost_usd=0,
+            total_rounds=0,
+        )
     except Exception:
         log.warning("Failed to write failure result for task %s", task_id, exc_info=True)
 
@@ -664,6 +660,14 @@ def ensure_workers_healthy() -> None:
                 meta = RUNNING.pop(w.busy_task_id) or {}
                 task = meta.get("task") if isinstance(meta, dict) else None
                 if isinstance(task, dict):
+                    try:
+                        from ouroboros.task_results import STATUS_INTERRUPTED, write_task_result
+                        write_task_result(
+                            DRIVE_ROOT, str(w.busy_task_id), STATUS_INTERRUPTED,
+                            result="Worker process died mid-task. Task will be retried.",
+                        )
+                    except Exception:
+                        log.debug("Failed to write interrupted status for %s", w.busy_task_id, exc_info=True)
                     queue.enqueue_task(task, front=True)
             respawn_worker(wid)
             queue.persist_queue_snapshot(reason="worker_respawn_after_crash")

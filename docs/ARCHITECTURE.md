@@ -1,4 +1,4 @@
-# Ouroboros v4.2.0 — Architecture & Reference
+# Ouroboros v4.5.0 — Architecture & Reference
 
 This document describes every component, page, button, API endpoint, and data flow.
 It is the single source of truth for how the system works. Keep it updated.
@@ -179,13 +179,15 @@ Navigation is a left sidebar with 8 pages.
 - **Status badge** (top-right): "Online" (green) / "Thinking..." (amber pulse) / "Reconnecting..." (red).
   Driven by WebSocket connection state and typing events.
 - **Message input**: textarea + send button. Shift+Enter for newline, Enter to send.
-- **Messages**: user bubbles (right, blue-tinted) and assistant bubbles (left, crimson). Assistant messages render markdown.
+- **Messages**: user bubbles (right, blue-tinted), assistant bubbles (left, crimson), and system-summary bubbles (left, amber). Non-user bubbles render markdown.
 - **Timestamps**: smart relative formatting (today: "HH:MM", yesterday: "Yesterday, HH:MM", older: "Mon DD, HH:MM"). Shown on hover.
 - **Progress messages**: background consciousness thinking shown as dimmed bubbles with 💬 prefix.
+- **System summaries**: `direction="system"` entries from `chat.jsonl` are shown in the same timeline with a 📋 label instead of being hidden or treated as user text.
 - **Typing indicator**: animated "thinking dots" bubble appears when the agent is processing.
 - **Persistence**: chat history loaded from server on page load (`/api/chat/history`), survives app restarts. Fallback to sessionStorage.
+- **Empty-chat init**: if neither server history nor sessionStorage has messages, the UI shows a transient assistant bubble: `Ouroboros has awakened`. This is visual-only and is not written to chat history.
 - Messages sent via WebSocket `{type: "chat", content: text}`.
-- Responses arrive via WebSocket `{type: "chat", role: "assistant", content: text, ts: "ISO"}`.
+- Responses arrive via WebSocket `{type: "chat", role: "assistant", content: text, ts: "ISO"}`. On page-load history sync, `/api/chat/history` can also return `role: "system"` entries for internal summaries.
 - Supports slash commands: `/status`, `/evolve`, `/review`, `/bg`, `/restart`, `/panic`.
 
 ### 3.2 Dashboard
@@ -293,7 +295,7 @@ Navigation is a left sidebar with 8 pages.
 | POST | `/api/local-model/stop` | Stop local model server |
 | GET | `/api/local-model/status` | Local model status and readiness |
 | GET | `/api/evolution-data` | Evolution metrics per git tag (LOC, prompt sizes, memory) |
-| GET | `/api/chat/history` | Merged chat + progress messages (chronological, limit param) |
+| GET | `/api/chat/history` | Merged chat + system summaries + progress messages (chronological, limit param) |
 | POST | `/api/local-model/test` | Local model sanity test (chat + tool calling) |
 | WS | `/ws` | WebSocket: chat messages, commands, log streaming |
 | GET | `/static/*` | Static files from `web/` directory (NoCacheStaticFiles wrapper forces revalidation) |
@@ -363,7 +365,7 @@ Each iteration (0.5s sleep):
 - Browser tools use thread-sticky executor (Playwright greenlet affinity)
 - All tools have hard timeout (default 360s, per-tool overrides for browser/search/vision)
 - Multi-layer safety: hardcoded sandbox (registry.py) → deterministic whitelist → LLM safety supervisor
-- Tool results truncated per-tool (repo_read/data_read: 80k, run_shell: 40k, default: 15k chars)
+- Tool results use explicit per-tool caps with visible truncation markers (`repo_read`/`data_read`/`knowledge_read`/`run_shell`: 80k, default: 15k chars). Cognitive reads (`memory/*`, prompts, BIBLE/docs, commit/review outputs) are exempt from silent clipping.
 - Context compaction kicks in after round 8 (summarizes old tool results)
 
 ### Git tools (tools/git.py + tools/review.py + supervisor/git_ops.py)
@@ -399,6 +401,7 @@ Multi-layer security:
 3. **LLM Layer 1 (fast)**: Light model checks remaining tool calls for SAFE/SUSPICIOUS/DANGEROUS.
 4. **LLM Layer 2 (deep)**: If flagged, heavy model re-evaluates with "are you sure?" nudge.
 5. **Post-execution revert**: After claude_code_edit, modifications to safety-critical files are automatically reverted.
+- Safety LLM calls now emit standard `llm_usage` events, so safety costs and failures appear in the same audit/health pipeline as other model calls.
 `identity.md` is intentionally mutable (self-creation) and can be rewritten radically;
 the constitutional guard is that the file itself must remain non-deletable.
 
@@ -407,6 +410,7 @@ the constitutional guard is that the file itself must remain non-deletable.
 - Daemon thread, sleeps between wakeups (interval controlled by LLM via `set_next_wakeup`)
 - Loads full agent context: BIBLE, identity, scratchpad, knowledge base, drive state,
   health invariants, recent chat/progress/tools/events (same context as main agent)
+- Owner messages are forwarded to background consciousness in full text (not first-100-char previews).
 - Calls LLM with lightweight introspection prompt
 - Has limited tool access (memory, messaging, scheduling, read-only)
 - **Progress emission**: emits 💬 progress messages to UI via event queue + persists to `progress.jsonl`
@@ -444,6 +448,7 @@ the constitutional guard is that the file itself must remain non-deletable.
 - Stored in `logs/task_reflections.jsonl`; last 20 entries loaded into dynamic context
 - Pattern register: recurring error classes tracked in `memory/knowledge/patterns.md`
   via LLM, loaded into semi-stable context as "Known error patterns"
+- Secondary reflection/pattern prompts use explicit truncation markers when compacted for prompt size; no silent clipping of these helper summaries.
 - Runs synchronously (not in daemon thread) to avoid data loss on shutdown
 
 ### Crash report injection (agent.py)
@@ -453,17 +458,24 @@ the constitutional guard is that the file itself must remain non-deletable.
 - File is NOT deleted — persists so `build_health_invariants()` surfaces
   CRITICAL: RECENT CRASH ROLLBACK on every task until the agent investigates
 
-### Subtask trace summaries
+### Subtask lifecycle and trace summaries
 
-- When a subtask completes, a compact trace summary is included in the result
-- Parent tasks see tool call counts, error counts, and agent notes
-- Trace is truncated to 4000 chars; large traces show first/last 15 calls
+- `schedule_task` now writes durable lifecycle states in `task_results/<id>.json`: `requested` → `scheduled` → `running` → terminal status (`completed`, `rejected_duplicate`, `failed`, etc.)
+- Duplicate rejects are persisted explicitly, so `wait_for_task()` can report honest status instead of pretending the task is still running.
+- Completed subtasks persist the full result text; parent tasks no longer see silently clipped child output.
+- When a subtask completes, a compact trace summary is included alongside the full result.
+- Parent tasks see tool call counts, error counts, and agent notes.
+- Trace compaction remains explicit: max 4000 chars with visible omission markers, plus first/last 15 tool calls for long traces.
 
 ### Context building (context.py)
 
 - As of v3.16.0, the Memory Registry digest (from `memory/registry.md`) is injected into every LLM context to enable source-of-truth awareness.
 - As of v3.20.0, `patterns.md` (Pattern Register) is injected into semi-stable context, and execution reflections from `task_reflections.jsonl` are injected into dynamic context.
 - As of v3.22.0, all docs are always in static context: BIBLE.md (180k), ARCHITECTURE.md (60k), DEVELOPMENT.md (30k), README.md (10k), CHECKLISTS.md (5k).
+- `Health Invariants` are placed at the start of the dynamic context block, before drive state/runtime/recent sections, so warnings influence planning before the model reads the noisier tail sections.
+- `build_recent_sections()` keeps recent dialogue broad, but task-scopes recent progress/tools/events when `task_id` is available.
+- `build_health_invariants()` is split into focused helpers and now also surfaces recent provider/routing errors plus local context overflows.
+- Local-model path no longer silently slices the live system prompt. It compacts non-core sections explicitly and raises an overflow error if core context still cannot fit.
 
 ### Deep review (review.py)
 
@@ -473,6 +485,7 @@ the constitutional guard is that the file itself must remain non-deletable.
 - Fallback to chunked previews if codebase exceeds 600K token budget
 - Security: skips sensitive files (.env, .pem, credentials.json, etc.)
 - Per-file cap: 1MB
+- Multi-model review now uses the shared async `LLMClient` OpenRouter path instead of raw one-off HTTP calls, so provider routing, Anthropic parameter requirements, usage normalization, and cache metadata are aligned with the rest of the runtime.
 
 ---
 

@@ -47,6 +47,9 @@ PY
 
 rm -rf build dist
 
+export PYINSTALLER_CONFIG_DIR="$PWD/.pyinstaller-cache"
+mkdir -p "$PYINSTALLER_CONFIG_DIR"
+
 echo "--- Running PyInstaller ---"
 python3 -m PyInstaller Ouroboros.spec --clean --noconfirm
 

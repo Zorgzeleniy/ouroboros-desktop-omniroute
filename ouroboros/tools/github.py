@@ -12,6 +12,13 @@ from ouroboros.tools.registry import ToolContext, ToolEntry
 
 log = logging.getLogger(__name__)
 
+
+def _truncate_with_notice(text: str, limit: int) -> str:
+    raw = str(text or "")
+    if len(raw) <= limit:
+        return raw
+    return raw[:limit] + f"\n...[truncated from {len(raw)} chars; omitted {len(raw) - limit}]"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -135,14 +142,15 @@ def _get_issue(ctx: ToolContext, number: int) -> str:
 
     body = (issue.get("body") or "").strip()
     if body:
-        lines.append(f"\n**Body:**\n{body[:3000]}")
+        lines.append(f"\n**Body:**\n{_truncate_with_notice(body, 3000)}")
 
     comments = issue.get("comments", [])
     if comments:
-        lines.append(f"\n**Comments ({len(comments)}):**")
-        for c in comments[:10]:  # limit to 10 most recent
+        shown_comments = comments[:10]
+        lines.append(f"\n**Comments (showing {len(shown_comments)} of {len(comments)}):**")
+        for c in shown_comments:
             c_author = c.get("author", {}).get("login", "unknown")
-            c_body = (c.get("body") or "").strip()[:500]
+            c_body = _truncate_with_notice((c.get("body") or "").strip(), 500)
             lines.append(f"\n@{c_author}:\n{c_body}")
 
     return "\n".join(lines)
