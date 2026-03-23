@@ -24,6 +24,35 @@ _OPENAI_PRICING = {
 }
 
 
+def _resolve_openai_client_settings() -> tuple[str, str | None, str]:
+    """Choose OpenAI credentials with legacy-compatible fallback behavior."""
+    official_key = (os.environ.get("OPENAI_API_KEY", "") or "").strip()
+    legacy_base_url = (os.environ.get("OPENAI_BASE_URL", "") or "").strip()
+    compatible_key = (os.environ.get("OPENAI_COMPATIBLE_API_KEY", "") or "").strip()
+    compatible_base_url = (os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "") or "").strip()
+    cloudru_key = (os.environ.get("CLOUDRU_FOUNDATION_MODELS_API_KEY", "") or "").strip()
+    cloudru_base_url = (
+        os.environ.get("CLOUDRU_FOUNDATION_MODELS_BASE_URL", "") or ""
+    ).strip() or "https://foundation-models.api.cloud.ru/v1"
+
+    if official_key and not legacy_base_url:
+        return official_key, None, "openai"
+
+    if cloudru_key:
+        return cloudru_key, cloudru_base_url, "cloudru_foundation_models"
+
+    if compatible_key:
+        return compatible_key, (compatible_base_url or None), "openai_compatible"
+
+    if official_key and legacy_base_url:
+        return official_key, legacy_base_url, "openai_compatible"
+
+    if official_key:
+        return official_key, None, "openai"
+
+    return "", None, "openai"
+
+
 def _estimate_openai_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Estimate cost from token counts. Returns 0 if model pricing unknown."""
     pricing = _OPENAI_PRICING.get(model)
@@ -45,10 +74,13 @@ def _web_search(
     search_context_size: str = "",
     reasoning_effort: str = "",
 ) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key, base_url, provider = _resolve_openai_client_settings()
     if not api_key:
         return json.dumps({
-            "error": "OPENAI_API_KEY not set. Configure it in Settings to enable web search."
+            "error": (
+                "No OpenAI-compatible provider key set. Configure OpenAI, Cloud.ru Foundation "
+                "Models, or OpenAI Compatible in Settings to enable web search."
+            )
         })
 
     active_model = model or os.environ.get("OUROBOROS_WEBSEARCH_MODEL", DEFAULT_SEARCH_MODEL)
@@ -57,7 +89,6 @@ def _web_search(
 
     try:
         from openai import OpenAI
-        base_url = (os.environ.get("OPENAI_BASE_URL", "") or "").strip() or None
         client = OpenAI(api_key=api_key, base_url=base_url)
         resp = client.responses.create(
             model=active_model,
@@ -86,9 +117,9 @@ def _web_search(
             try:
                 ctx.pending_events.append({
                     "type": "llm_usage",
-                    "provider": "openai_websearch",
+                    "provider": f"{provider}_websearch",
                     "model": active_model,
-                    "api_key_type": "openai",
+                    "api_key_type": provider,
                     "model_category": "websearch",
                     "prompt_tokens": input_tokens,
                     "completion_tokens": output_tokens,

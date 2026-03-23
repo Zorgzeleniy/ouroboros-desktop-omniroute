@@ -18,7 +18,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OUROBOROS_SERVER_HOST=0.0.0.0 \
     OUROBOROS_SERVER_PORT=8765 \
     OUROBOROS_REPO_DIR=/opt/ouroboros \
-    OUROBOROS_DATA_DIR=${APP_HOME}/Ouroboros/data
+    OUROBOROS_DATA_DIR=${APP_HOME}/Ouroboros/data \
+    OUROBOROS_FILE_BROWSER_DEFAULT=${APP_HOME}
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

@@ -41,6 +41,10 @@ SETTINGS_DEFAULTS = {
     "OPENROUTER_API_KEY": "",
     "OPENAI_API_KEY": "",
     "OPENAI_BASE_URL": "",
+    "OPENAI_COMPATIBLE_API_KEY": "",
+    "OPENAI_COMPATIBLE_BASE_URL": "",
+    "CLOUDRU_FOUNDATION_MODELS_API_KEY": "",
+    "CLOUDRU_FOUNDATION_MODELS_BASE_URL": "https://foundation-models.api.cloud.ru/v1",
     "ANTHROPIC_API_KEY": "",
     "OUROBOROS_NETWORK_PASSWORD": "",
     "OUROBOROS_MODEL": "anthropic/claude-opus-4.6",
@@ -193,7 +197,10 @@ def save_settings(settings: dict) -> None:
 def apply_settings_to_env(settings: dict) -> None:
     """Push settings into environment variables for supervisor modules."""
     env_keys = [
-        "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL",
+        "OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_BASE_URL",
+        "CLOUDRU_FOUNDATION_MODELS_API_KEY", "CLOUDRU_FOUNDATION_MODELS_BASE_URL",
+        "ANTHROPIC_API_KEY",
         "OUROBOROS_NETWORK_PASSWORD",
         "OUROBOROS_MODEL", "OUROBOROS_MODEL_CODE", "OUROBOROS_MODEL_LIGHT",
         "OUROBOROS_MODEL_FALLBACK", "CLAUDE_CODE_MODEL",

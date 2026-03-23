@@ -98,8 +98,8 @@ The same values can also be provided via environment variables:
 | `OUROBOROS_SERVER_HOST` | `127.0.0.1` | Default bind host |
 | `OUROBOROS_SERVER_PORT` | `8765` | Default bind port |
 
-If you bind on anything other than localhost, you must also set `OUROBOROS_NETWORK_PASSWORD`.
-The built-in password gate is skipped for localhost requests, but enforced for remote/browser access.
+If `OUROBOROS_NETWORK_PASSWORD` is set, the built-in password gate is skipped for localhost
+requests but enforced for remote/browser access regardless of bind host.
 
 The Files tab uses your home directory by default only for localhost usage. For Docker or other
 network-exposed runs, set `OUROBOROS_FILE_BROWSER_DEFAULT` to an explicit directory.
@@ -117,7 +117,8 @@ make test
 ### Docker (web UI)
 
 Docker is for the web UI/runtime flow, not the desktop bundle. The container binds to
-`0.0.0.0:8765` by default, so `OUROBOROS_NETWORK_PASSWORD` is required.
+`0.0.0.0:8765` by default. Set `OUROBOROS_NETWORK_PASSWORD` if you want to require authentication
+for non-localhost access.
 
 Build the image:
 
@@ -129,7 +130,6 @@ Run on the default port:
 
 ```bash
 docker run --rm -p 8765:8765 \
-  -e OUROBOROS_NETWORK_PASSWORD=change-me \
   -e OUROBOROS_FILE_BROWSER_DEFAULT=/workspace \
   -v "$PWD:/workspace" \
   ouroboros-web
@@ -140,7 +140,6 @@ Use a custom port via environment variables:
 ```bash
 docker run --rm -p 9000:9000 \
   -e OUROBOROS_SERVER_PORT=9000 \
-  -e OUROBOROS_NETWORK_PASSWORD=change-me \
   -e OUROBOROS_FILE_BROWSER_DEFAULT=/workspace \
   -v "$PWD:/workspace" \
   ouroboros-web
@@ -150,7 +149,6 @@ Run with launch arguments instead:
 
 ```bash
 docker run --rm -p 9000:9000 \
-  -e OUROBOROS_NETWORK_PASSWORD=change-me \
   -e OUROBOROS_FILE_BROWSER_DEFAULT=/workspace \
   -v "$PWD:/workspace" \
   ouroboros-web --port 9000
@@ -160,7 +158,7 @@ Required/important environment variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OUROBOROS_NETWORK_PASSWORD` | Yes for Docker/non-localhost | Password gate for browser/API access outside localhost |
+| `OUROBOROS_NETWORK_PASSWORD` | Optional | Password gate for browser/API access outside localhost when set |
 | `OUROBOROS_FILE_BROWSER_DEFAULT` | Recommended, required for Files tab in Docker/non-localhost mode | Explicit root directory exposed in the Files tab |
 | `OUROBOROS_SERVER_PORT` | Optional | Override container listen port |
 | `OUROBOROS_SERVER_HOST` | Optional | Defaults to `0.0.0.0` in Docker |
@@ -169,7 +167,6 @@ Example: mount a host workspace and expose only that directory in Files:
 
 ```bash
 docker run --rm -p 8765:8765 \
-  -e OUROBOROS_NETWORK_PASSWORD=change-me \
   -e OUROBOROS_FILE_BROWSER_DEFAULT=/workspace \
   -v "$PWD:/workspace" \
   ouroboros-web
@@ -263,12 +260,14 @@ Created on first launch:
 | Key | Required | Where to get it |
 |-----|----------|-----------------|
 | OpenRouter API Key | **Yes** | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| OpenAI API Key | No | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) — enables web search tool |
-| OpenAI Base URL | No | Optional OpenAI-compatible endpoint for web search, e.g. a proxy or third-party compatible API |
+| OpenAI API Key | No | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) — official OpenAI slot for web search |
+| OpenAI Compatible API Key | No | Any OpenAI-compatible provider key used for web search |
+| OpenAI Compatible Base URL | No | Base URL for the OpenAI-compatible provider |
+| Cloud.ru Foundation Models API Key | No | Cloud.ru Foundation Models key for the built-in OpenAI-compatible slot |
 | Anthropic API Key | No | [console.anthropic.com](https://console.anthropic.com/settings/keys) — enables Claude Code CLI |
 | GitHub Token | No | [github.com/settings/tokens](https://github.com/settings/tokens) — enables remote sync |
 
-All keys are configured through the **Settings** page in the UI or during the first-run wizard.
+All keys are configured through the **AI Providers** tab in the Settings page or during the first-run wizard.
 
 ### Default Models
 
@@ -283,7 +282,32 @@ All keys are configured through the **Settings** page in the UI or during the fi
 
 Task/chat reasoning defaults to `medium`.
 
-Models are configurable in the Settings page. All LLM calls go through [OpenRouter](https://openrouter.ai) (except web search, which uses OpenAI directly or an OpenAI-compatible base URL if configured).
+Models are configurable in the Settings page. All LLM calls go through [OpenRouter](https://openrouter.ai) except web search, which can use:
+
+- the official `OpenAI` slot
+- the dedicated `Cloud.ru Foundation Models` OpenAI-compatible slot
+- the generic `OpenAI Compatible` slot
+
+Legacy `OPENAI_BASE_URL` is still recognized for backward compatibility, but new setups should prefer the dedicated compatible-provider fields.
+
+### Provider Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENROUTER_API_KEY` | Main LLM routing through OpenRouter |
+| `OPENAI_API_KEY` | Official OpenAI key for web search |
+| `OPENAI_COMPATIBLE_API_KEY` | Generic OpenAI-compatible provider key |
+| `OPENAI_COMPATIBLE_BASE_URL` | Generic OpenAI-compatible provider base URL |
+| `CLOUDRU_FOUNDATION_MODELS_API_KEY` | Cloud.ru Foundation Models key |
+| `CLOUDRU_FOUNDATION_MODELS_BASE_URL` | Cloud.ru Foundation Models base URL. Defaults to `https://foundation-models.api.cloud.ru/v1` |
+| `ANTHROPIC_API_KEY` | Enables Claude Code CLI tooling |
+| `OUROBOROS_NETWORK_PASSWORD` | Optional password gate for non-localhost access |
+
+Legacy variable:
+
+| Variable | Status | Notes |
+|----------|--------|-------|
+| `OPENAI_BASE_URL` | Backward-compatible | Older single-slot OpenAI-compatible base URL. Kept for migration/compatibility. |
 
 ### File Browser Start Directory
 

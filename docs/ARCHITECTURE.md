@@ -199,7 +199,7 @@ Navigation is a left sidebar with 9 pages.
 - **Write safety**: unsaved text edits are guarded on folder switches, file switches, page navigation, and browser refresh.
 - **Root policy**: localhost requests fall back to the current user's home directory when no root is configured.
   Network/Docker access requires an explicit `OUROBOROS_FILE_BROWSER_DEFAULT` directory.
-- **Network policy**: non-loopback browser/API access is protected by `OUROBOROS_NETWORK_PASSWORD`.
+- **Network policy**: when `OUROBOROS_NETWORK_PASSWORD` is configured, non-loopback browser/API access is protected.
   `/api/health` remains public for health checks; the rest of the app requires auth when the password is configured.
 - **Bounds**: directory listings are capped, previews are bounded to a text/byte limit, and uploads reject oversized payloads.
 
@@ -293,8 +293,8 @@ Navigation is a left sidebar with 9 pages.
 ## 4. Server API Endpoints
 
 If `OUROBOROS_NETWORK_PASSWORD` is configured, non-loopback HTTP/WebSocket access requires
-authentication. `/api/health`, `/auth/login`, and `/auth/logout` remain reachable without an
-existing session.
+authentication regardless of bind host. `/api/health`, `/auth/login`, and `/auth/logout` remain
+reachable without an existing session.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -537,7 +537,7 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 | OPENAI_API_KEY | "" | Optional. For web_search tool |
 | OPENAI_BASE_URL | "" | Optional. Base URL for OpenAI-compatible web search backend |
 | ANTHROPIC_API_KEY | "" | Optional. For Claude Code CLI |
-| OUROBOROS_NETWORK_PASSWORD | "" | Optional on localhost, required for non-loopback access |
+| OUROBOROS_NETWORK_PASSWORD | "" | Optional. Enables auth for non-loopback access when set |
 | OUROBOROS_MODEL | anthropic/claude-opus-4.6 | Main reasoning model |
 | OUROBOROS_MODEL_CODE | anthropic/claude-opus-4.6 | Code editing model |
 | OUROBOROS_MODEL_LIGHT | anthropic/claude-sonnet-4.6 | Fast/cheap model (safety, consciousness) |

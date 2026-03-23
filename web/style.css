@@ -922,6 +922,203 @@ body {
     padding: 20px;
 }
 
+.settings-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 980px;
+}
+
+.settings-tabbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 18px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+        rgba(12, 16, 24, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    backdrop-filter: blur(14px);
+}
+
+.settings-tab {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border-radius: 12px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: color 0.18s, background 0.18s, border-color 0.18s, transform 0.18s;
+}
+
+.settings-tab:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-tab.active {
+    color: var(--text-primary);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
+    border-color: rgba(148, 163, 184, 0.22);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+}
+
+.settings-panel {
+    display: none;
+}
+
+.settings-panel.active {
+    display: block;
+}
+
+.settings-card {
+    padding: 22px;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+        radial-gradient(circle at top right, rgba(99, 102, 241, 0.08), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02)),
+        rgba(15, 23, 42, 0.56);
+    box-shadow: 0 28px 60px rgba(2, 8, 23, 0.22);
+}
+
+.settings-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.settings-card-header h3 {
+    font-size: 18px;
+    font-weight: 650;
+    margin: 0 0 6px;
+}
+
+.settings-card-header p {
+    margin: 0;
+    max-width: 640px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.provider-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    overflow: hidden;
+    transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+.provider-card.expanded {
+    border-color: rgba(96, 165, 250, 0.38);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.provider-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.provider-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.provider-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    flex: 0 0 auto;
+}
+
+.provider-logo-chip {
+    width: 28px;
+    height: 28px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.08);
+    flex: 0 0 auto;
+    overflow: hidden;
+}
+
+.provider-logo-image {
+    width: 16px;
+    height: 16px;
+    display: block;
+    object-fit: contain;
+    filter: brightness(0) invert(1);
+}
+
+.provider-title {
+    font-size: 16px;
+    font-weight: 650;
+}
+
+.provider-chevron {
+    color: var(--text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    flex: 0 0 auto;
+}
+
+.provider-body {
+    padding: 0 18px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.provider-field-wide {
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 100%;
+}
+
+.provider-field-wide input,
+.provider-field-wide select {
+    width: 100%;
+}
+
 .form-section { margin-bottom: 24px; }
 
 .form-section h3 {
@@ -961,15 +1158,79 @@ body {
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form-field input:focus {
+.secret-input-wrap {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+}
+
+.secret-input-wrap input {
+    padding-right: 64px;
+}
+
+.secret-toggle-btn {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    transition: color 0.18s, background 0.18s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.secret-toggle-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.secret-toggle-btn:focus-visible {
+    outline: none;
+    color: var(--text-primary);
+    background: rgba(96, 165, 250, 0.12);
+}
+
+.secret-toggle-icon {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
+.secret-toggle-icon-hide {
+    display: none;
+}
+
+.secret-toggle-btn[aria-pressed="true"] .secret-toggle-icon-show {
+    display: none;
+}
+
+.secret-toggle-btn[aria-pressed="true"] .secret-toggle-icon-hide {
+    display: block;
+}
+
+.form-field input:focus,
+.form-field select:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.settings-note {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
 }
 
 .local-toggle {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     font-size: 12px;
     color: var(--text-secondary);
     cursor: pointer;
@@ -977,13 +1238,57 @@ body {
     white-space: nowrap;
 }
 .local-toggle input[type="checkbox"] {
-    accent-color: var(--accent);
-    width: 14px;
-    height: 14px;
-    cursor: pointer;
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
 }
 .local-toggle[title] {
     transition: color 0.2s;
+}
+
+.local-toggle-switch {
+    position: relative;
+    width: 38px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    flex: 0 0 auto;
+}
+
+.local-toggle-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #f8fafc;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
+    transition: transform 0.2s ease;
+}
+
+.local-toggle input[type="checkbox"]:checked + .local-toggle-switch {
+    background: rgba(96, 165, 250, 0.85);
+    border-color: rgba(96, 165, 250, 0.95);
+    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14);
+}
+
+.local-toggle input[type="checkbox"]:checked + .local-toggle-switch::after {
+    transform: translateX(16px);
+}
+
+.local-toggle input[type="checkbox"]:focus-visible + .local-toggle-switch {
+    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18);
+}
+
+.local-toggle-text {
+    font-weight: 600;
+    letter-spacing: 0.01em;
 }
 
 .form-field input[type="range"] {
@@ -999,6 +1304,82 @@ body {
     height: 1px;
     background: var(--divider);
     margin: 20px 0;
+}
+
+.settings-inline-actions {
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-status {
+    margin-top: 10px;
+    font-size: 13px;
+}
+
+@media (max-width: 900px) {
+    .settings-scroll {
+        padding: 16px;
+    }
+
+    .settings-card {
+        padding: 18px;
+        border-radius: 18px;
+    }
+
+    .form-field input,
+    .form-field select {
+        width: min(100%, 320px);
+    }
+}
+
+@media (max-width: 640px) {
+    .settings-tabbar {
+        position: static;
+    }
+
+    .settings-tab {
+        flex: 1 1 calc(50% - 8px);
+        text-align: center;
+    }
+
+    .settings-card-header {
+        margin-bottom: 14px;
+    }
+
+    .provider-header {
+        padding: 14px 16px;
+    }
+
+    .provider-body {
+        padding: 0 16px 16px;
+    }
+
+    .form-row {
+        gap: 10px;
+    }
+
+    .form-field {
+        width: 100%;
+    }
+
+    .form-field input,
+    .form-field select {
+        width: 100% !important;
+    }
+
+    .settings-panel-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
 }
 
 /* Logs */

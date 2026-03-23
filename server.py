@@ -559,6 +559,8 @@ async def api_settings_get(request: Request) -> JSONResponse:
     for key in (
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "CLOUDRU_FOUNDATION_MODELS_API_KEY",
         "ANTHROPIC_API_KEY",
         "GITHUB_TOKEN",
         "OUROBOROS_NETWORK_PASSWORD",
@@ -572,9 +574,23 @@ async def api_settings_post(request: Request) -> JSONResponse:
     try:
         body = await request.json()
         current = load_settings()
+        legacy_compatible_key = str(current.get("OPENAI_API_KEY", "") or "")
+        legacy_compatible_base_url = str(current.get("OPENAI_BASE_URL", "") or "").strip()
         for key in _SETTINGS_DEFAULTS:
             if key in body:
                 current[key] = body[key]
+        # Migrate legacy OpenAI-compatible settings into the dedicated slot when the
+        # new UI clears OPENAI_BASE_URL but the user did not retype the masked key.
+        if (
+            "OPENAI_BASE_URL" in body
+            and body.get("OPENAI_BASE_URL", "") == ""
+            and body.get("OPENAI_COMPATIBLE_BASE_URL", "")
+            and "OPENAI_COMPATIBLE_API_KEY" not in body
+            and not str(current.get("OPENAI_COMPATIBLE_API_KEY", "") or "").strip()
+            and legacy_compatible_base_url
+            and legacy_compatible_key
+        ):
+            current["OPENAI_COMPATIBLE_API_KEY"] = legacy_compatible_key
         save_settings(current)
         _apply_settings_to_env(current)
         warnings = []

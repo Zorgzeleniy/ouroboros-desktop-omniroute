@@ -24,12 +24,23 @@ def _make_client(monkeypatch) -> TestClient:
     return TestClient(app)
 
 
-def test_validate_network_auth_configuration_requires_password(monkeypatch):
+def test_validate_network_auth_configuration_allows_non_localhost_without_password(monkeypatch):
     monkeypatch.delenv(server_auth.NETWORK_PASSWORD_KEY, raising=False)
     monkeypatch.setattr(server_auth, "load_settings", lambda: {})
 
     assert server_auth.validate_network_auth_configuration("127.0.0.1") is None
-    assert server_auth.validate_network_auth_configuration("0.0.0.0")
+    assert server_auth.validate_network_auth_configuration("0.0.0.0") is None
+
+
+def test_network_auth_gate_is_disabled_when_password_is_not_configured(monkeypatch):
+    monkeypatch.delenv(server_auth.NETWORK_PASSWORD_KEY, raising=False)
+    monkeypatch.setattr(server_auth, "load_settings", lambda: {})
+    app = server_auth.NetworkAuthGate(Starlette(routes=[Route("/", endpoint=_ok)]))
+
+    with TestClient(app) as client:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
 
 
 def test_network_auth_gate_blocks_non_local_requests(monkeypatch):

@@ -1,4 +1,4 @@
-"""Minimal auth gate for non-localhost browser/server access."""
+"""Optional auth gate for browser/server access when a password is configured."""
 
 from __future__ import annotations
 
@@ -44,14 +44,7 @@ def is_loopback_host(host: str | None) -> bool:
 
 
 def validate_network_auth_configuration(bind_host: str) -> str | None:
-    if is_loopback_host(bind_host):
-        return None
-    if get_configured_network_password():
-        return None
-    return (
-        "Refusing to bind server on a non-localhost interface without "
-        f"{NETWORK_PASSWORD_KEY} configured."
-    )
+    return None
 
 
 def _headers_map(scope: Scope) -> dict[str, str]:
@@ -227,7 +220,7 @@ async def _handle_logout(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 class NetworkAuthGate:
-    """Require a password for non-localhost access."""
+    """Require a password for non-localhost access when configured."""
 
     def __init__(self, app: ASGIApp):
         self.app = app
