@@ -42,6 +42,7 @@ SETTINGS_DEFAULTS = {
     "OPENAI_API_KEY": "",
     "OPENAI_BASE_URL": "",
     "ANTHROPIC_API_KEY": "",
+    "OUROBOROS_NETWORK_PASSWORD": "",
     "OUROBOROS_MODEL": "anthropic/claude-opus-4.6",
     "OUROBOROS_MODEL_CODE": "anthropic/claude-opus-4.6",
     "OUROBOROS_MODEL_LIGHT": "anthropic/claude-sonnet-4.6",
@@ -80,6 +81,7 @@ SETTINGS_DEFAULTS = {
     "USE_LOCAL_CODE": False,
     "USE_LOCAL_LIGHT": False,
     "USE_LOCAL_FALLBACK": False,
+    "OUROBOROS_FILE_BROWSER_DEFAULT": "",
 }
 
 _VALID_EFFORTS = ("none", "low", "medium", "high")
@@ -192,6 +194,7 @@ def apply_settings_to_env(settings: dict) -> None:
     """Push settings into environment variables for supervisor modules."""
     env_keys = [
         "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY",
+        "OUROBOROS_NETWORK_PASSWORD",
         "OUROBOROS_MODEL", "OUROBOROS_MODEL_CODE", "OUROBOROS_MODEL_LIGHT",
         "OUROBOROS_MODEL_FALLBACK", "CLAUDE_CODE_MODEL",
         "TOTAL_BUDGET", "GITHUB_TOKEN", "GITHUB_REPO",
@@ -205,6 +208,7 @@ def apply_settings_to_env(settings: dict) -> None:
         "LOCAL_MODEL_PORT", "LOCAL_MODEL_N_GPU_LAYERS", "LOCAL_MODEL_CONTEXT_LENGTH",
         "LOCAL_MODEL_CHAT_FORMAT",
         "USE_LOCAL_MAIN", "USE_LOCAL_CODE", "USE_LOCAL_LIGHT", "USE_LOCAL_FALLBACK",
+        "OUROBOROS_FILE_BROWSER_DEFAULT",
     ]
     for k in env_keys:
         val = settings.get(k)

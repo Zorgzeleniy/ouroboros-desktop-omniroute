@@ -30,6 +30,7 @@ const state = {
     activeFilters: { tools: true, llm: true, errors: true, tasks: true, system: true, consciousness: true },
     unreadCount: 0,
     activePage: 'chat',
+    beforePageLeave: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -40,7 +41,12 @@ const ws = createWS();
 // ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
-function showPage(name) {
+async function showPage(name) {
+    if (state.activePage === name) return;
+    if (typeof state.beforePageLeave === 'function') {
+        const canLeave = await state.beforePageLeave({ from: state.activePage, to: name });
+        if (canLeave === false) return;
+    }
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(`page-${name}`)?.classList.add('active');
@@ -68,13 +74,22 @@ function updateUnreadBadge() {
 }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => showPage(btn.dataset.page));
+    btn.addEventListener('click', () => {
+        showPage(btn.dataset.page);
+    });
 });
 
 // ---------------------------------------------------------------------------
 // Initialize All Pages (registers WS listeners before connection opens)
 // ---------------------------------------------------------------------------
-const ctx = { ws, state, updateUnreadBadge };
+const ctx = {
+    ws,
+    state,
+    updateUnreadBadge,
+    setBeforePageLeave: (handler) => {
+        state.beforePageLeave = typeof handler === 'function' ? handler : null;
+    },
+};
 
 initChat(ctx);
 initFiles(ctx);

@@ -57,5 +57,6 @@ def test_index_includes_reconnect_overlay():
 
 
 def test_index_page_disables_cache():
-    source = _read("server.py")
-    assert "cache-control" in source.lower()
+    server_source = _read("server.py")
+    helper_source = _read("ouroboros/server_web.py")
+    assert "cache-control" in server_source.lower() or "cache-control" in helper_source.lower()

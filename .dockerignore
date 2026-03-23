@@ -12,4 +12,8 @@ build
 venv
 env
 .env
+.cursor
+.pyinstaller-cache
+python-standalone
+assets
 Ouroboros.spec

@@ -1,4 +1,4 @@
-# Ouroboros v4.5.0 — Architecture & Reference
+# Ouroboros v4.6.0 — Architecture & Reference
 
 This document describes every component, page, button, API endpoint, and data flow.
 It is the single source of truth for how the system works. Keep it updated.
@@ -166,13 +166,14 @@ The web UI is a single-page app (`web/index.html` + `web/style.css` + ES modules
 - `chat.js` — chat page with message rendering
 - `dashboard.js` — dashboard with controls and polling
 - `logs.js` — log viewer with category filters
+- `files.js` — file browser, preview, uploads, and editor
 - `evolution.js` — evolution chart (Chart.js)
 - `settings.js` — settings form with local model management
 - `costs.js` — cost breakdown tables
 - `versions.js` — version management and rollback
 - `about.js` — about page
 
-Navigation is a left sidebar with 8 pages.
+Navigation is a left sidebar with 9 pages.
 
 ### 3.1 Chat
 
@@ -190,7 +191,19 @@ Navigation is a left sidebar with 8 pages.
 - Responses arrive via WebSocket `{type: "chat", role: "assistant", content: text, ts: "ISO"}`. On page-load history sync, `/api/chat/history` can also return `role: "system"` entries for internal summaries.
 - Supports slash commands: `/status`, `/evolve`, `/review`, `/bg`, `/restart`, `/panic`.
 
-### 3.2 Dashboard
+### 3.2 Files
+
+- **Browser pane**: directory tree for the configured root, breadcrumb navigation, inline filter, refresh button,
+  create-file/create-directory actions, clipboard-style copy/move/paste, and delete/download context menu.
+- **Preview pane**: text preview/editor, image preview, binary-file placeholder, and drag-drop upload target.
+- **Write safety**: unsaved text edits are guarded on folder switches, file switches, page navigation, and browser refresh.
+- **Root policy**: localhost requests fall back to the current user's home directory when no root is configured.
+  Network/Docker access requires an explicit `OUROBOROS_FILE_BROWSER_DEFAULT` directory.
+- **Network policy**: non-loopback browser/API access is protected by `OUROBOROS_NETWORK_PASSWORD`.
+  `/api/health` remains public for health checks; the rest of the app requires auth when the password is configured.
+- **Bounds**: directory listings are capped, previews are bounded to a text/byte limit, and uploads reject oversized payloads.
+
+### 3.3 Dashboard
 
 - **Stat cards**: Uptime, Workers (alive/total + progress bar), Budget (spent/limit + bar), Branch@SHA.
 - **Toggles**: Evolution Mode (on/off), Background Consciousness (on/off).
@@ -201,9 +214,10 @@ Navigation is a left sidebar with 8 pages.
   - **Panic Stop** → sends `/panic` command (with confirm dialog). Kills all workers immediately.
 - Dashboard polls `/api/state` every 3 seconds.
 
-### 3.3 Settings
+### 3.4 Settings
 
-- **API Keys**: OpenRouter (required), OpenAI (optional, for web search), Anthropic (optional).
+- **API Keys**: OpenRouter (required), OpenAI (optional, for web search), Anthropic (optional),
+  OpenAI Base URL (optional), and Network Password (optional).
   Keys are displayed as masked values (e.g., `sk-or-v1...`).
   Only overwritten on save if user enters a new value (not containing `...`).
 - **Models**: Main, Code, Light, Fallback.
@@ -224,7 +238,7 @@ Navigation is a left sidebar with 8 pages.
   Keeps: repo/ (agent code).
   Triggers server restart. On next launch, onboarding wizard appears.
 
-### 3.4 Logs
+### 3.5 Logs
 
 - **Filter chips**: Tools, LLM, Errors, Tasks, System, Consciousness.
   Toggle on/off to filter log entries.
@@ -238,7 +252,7 @@ Navigation is a left sidebar with 8 pages.
 - Repeated startup/system events such as verification bursts are compacted in the UI.
 - Max 500 entries in view (oldest removed).
 
-### 3.5 Versions
+### 3.6 Versions
 
 - **Current branch + SHA** displayed at top.
 - **Recent Commits** list with SHA, date, message, and "Restore" button.
@@ -249,7 +263,7 @@ Navigation is a left sidebar with 8 pages.
   Updates `ouroboros-stable` branch to match `ouroboros`.
 - **Refresh** button → reloads commit/tag lists.
 
-### 3.6 Costs
+### 3.7 Costs
 
 - **Total Spent / Total Calls / Top Model** stat cards at top.
 - **Breakdown tables**: By Model, By API Key, By Model Category, By Task Category.
@@ -257,7 +271,7 @@ Navigation is a left sidebar with 8 pages.
 - **Refresh** button reloads data from `/api/cost-breakdown`.
 - Data auto-loads when the page becomes active (MutationObserver on class).
 
-### 3.7 Evolution
+### 3.8 Evolution
 
 - **Chart**: interactive Chart.js line graph showing code LOC, prompt sizes (BIBLE, SYSTEM),
   identity, scratchpad, and total memory growth across all git tags.
@@ -266,7 +280,7 @@ Navigation is a left sidebar with 8 pages.
 - Data fetched from `/api/evolution-data` (cached 60s server-side).
 - Chart.js bundled locally (`web/chart.umd.min.js`) — no CDN dependency.
 
-### 3.8 About
+### 3.9 About
 
 - Logo (large, centered)
 - "A self-creating AI agent" description
@@ -278,11 +292,24 @@ Navigation is a left sidebar with 8 pages.
 
 ## 4. Server API Endpoints
 
+If `OUROBOROS_NETWORK_PASSWORD` is configured, non-loopback HTTP/WebSocket access requires
+authentication. `/api/health`, `/auth/login`, and `/auth/logout` remain reachable without an
+existing session.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Serves `web/index.html` |
 | GET | `/api/health` | `{status, version, runtime_version, app_version}` |
 | GET | `/api/state` | Dashboard data: uptime, workers, budget, branch, etc. |
+| GET | `/api/files/list` | Directory listing for Files tab root/path |
+| GET | `/api/files/read` | File preview payload (text/image metadata/binary placeholder) |
+| GET | `/api/files/content` | Raw file content response for image preview |
+| GET | `/api/files/download` | Attachment download for a file |
+| POST | `/api/files/write` | Create or overwrite a text file from Files editor |
+| POST | `/api/files/mkdir` | Create a directory inside current Files path |
+| POST | `/api/files/delete` | Delete a file/directory (root delete is rejected) |
+| POST | `/api/files/transfer` | Copy or move files/directories within the Files root |
+| POST | `/api/files/upload` | Multipart upload into current Files directory |
 | GET | `/api/settings` | Current settings with masked API keys |
 | POST | `/api/settings` | Update settings (partial update, only provided keys) |
 | POST | `/api/command` | Send a slash command `{cmd: "/status"}` |
@@ -297,6 +324,8 @@ Navigation is a left sidebar with 8 pages.
 | GET | `/api/evolution-data` | Evolution metrics per git tag (LOC, prompt sizes, memory) |
 | GET | `/api/chat/history` | Merged chat + system summaries + progress messages (chronological, limit param) |
 | POST | `/api/local-model/test` | Local model sanity test (chat + tool calling) |
+| GET/POST | `/auth/login` | Password gate entrypoint for non-localhost browser/API access |
+| GET/POST | `/auth/logout` | Clear auth cookie/session |
 | WS | `/ws` | WebSocket: chat messages, commands, log streaming |
 | GET | `/static/*` | Static files from `web/` directory (NoCacheStaticFiles wrapper forces revalidation) |
 
@@ -495,7 +524,7 @@ Single source of truth for:
 - **Paths**: HOME, APP_ROOT, REPO_DIR, DATA_DIR, SETTINGS_PATH, PID_FILE, PORT_FILE
 - **Constants**: RESTART_EXIT_CODE (42), AGENT_SERVER_PORT (8765)
 - **Settings defaults**: all model names, budget, timeouts, worker count
-- **Functions**: `read_version()`, `load_settings()`, `save_settings()`,
+- **Functions**: `load_settings()`, `save_settings()`,
   `apply_settings_to_env()`, `acquire_pid_lock()`, `release_pid_lock()`
 
 Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent access.
@@ -506,7 +535,9 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 |-----|---------|-------------|
 | OPENROUTER_API_KEY | "" | Required. Main LLM API key |
 | OPENAI_API_KEY | "" | Optional. For web_search tool |
+| OPENAI_BASE_URL | "" | Optional. Base URL for OpenAI-compatible web search backend |
 | ANTHROPIC_API_KEY | "" | Optional. For Claude Code CLI |
+| OUROBOROS_NETWORK_PASSWORD | "" | Optional on localhost, required for non-loopback access |
 | OUROBOROS_MODEL | anthropic/claude-opus-4.6 | Main reasoning model |
 | OUROBOROS_MODEL_CODE | anthropic/claude-opus-4.6 | Code editing model |
 | OUROBOROS_MODEL_LIGHT | anthropic/claude-sonnet-4.6 | Fast/cheap model (safety, consciousness) |
@@ -539,6 +570,7 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 | LOCAL_MODEL_CHAT_FORMAT | "" | Chat format for local model (`""` = auto-detect) |
 | GITHUB_TOKEN | "" | Optional. GitHub PAT for remote sync |
 | GITHUB_REPO | "" | Optional. GitHub repo (owner/name) for sync |
+| OUROBOROS_FILE_BROWSER_DEFAULT | "" | Explicit Files tab root. Required for Docker/non-localhost Files access |
 
 ---
 

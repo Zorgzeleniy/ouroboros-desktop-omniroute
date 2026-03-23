@@ -16,7 +16,7 @@ function iconForEntry(entry) {
     return entry.type === 'dir' ? '▸' : '•';
 }
 
-export function initFiles() {
+export function initFiles({ state: appState, setBeforePageLeave } = {}) {
     const page = document.createElement('div');
     page.id = 'page-files';
     page.className = 'page';
@@ -262,8 +262,12 @@ export function initFiles() {
             deleteItem.hidden = !path;
         }
         contextMenuEl.hidden = false;
-        contextMenuEl.style.left = `${x}px`;
-        contextMenuEl.style.top = `${y}px`;
+        const margin = 8;
+        const rect = contextMenuEl.getBoundingClientRect();
+        const left = Math.min(Math.max(margin, x), Math.max(margin, window.innerWidth - rect.width - margin));
+        const top = Math.min(Math.max(margin, y), Math.max(margin, window.innerHeight - rect.height - margin));
+        contextMenuEl.style.left = `${left}px`;
+        contextMenuEl.style.top = `${top}px`;
     }
 
     function hideContextMenu() {
@@ -655,8 +659,8 @@ export function initFiles() {
         await loadDirectory(state.path || '.', { skipEditorReset: true, skipLeaveCheck: true });
     }
 
-    function createNewFile() {
-        if (state.editorDirty) return;
+    function createNewFile(options = {}) {
+        if (state.editorDirty && !options.force) return;
         hideContextMenu();
         state.selectedPath = '';
         state.selectedType = 'file';
@@ -686,7 +690,7 @@ export function initFiles() {
 
     newFileBtn.addEventListener('click', async () => {
         if (!(await canLeaveEditor())) return;
-        createNewFile();
+        createNewFile({ force: true });
     });
 
     newDirBtn.addEventListener('click', () => {
@@ -834,6 +838,16 @@ export function initFiles() {
             deleteSelectedEntry().catch(showError);
         }
     });
+
+    if (typeof setBeforePageLeave === 'function') {
+        setBeforePageLeave(async ({ from }) => {
+            if (from !== 'files') return true;
+            return canLeaveEditor();
+        });
+    }
+    if (appState) {
+        appState.filesState = state;
+    }
 
     updateClipboardActions();
     loadDirectory('.', { useBackendDefault: true }).catch(showError);

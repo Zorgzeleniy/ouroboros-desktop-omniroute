@@ -14,6 +14,7 @@ export function initSettings({ ws, state }) {
                 <div class="form-row"><div class="form-field"><label>OpenAI API Key (optional)</label><input id="s-openai" type="password"></div></div>
                 <div class="form-row"><div class="form-field"><label>OpenAI Base URL (optional)</label><input id="s-openai-base-url" placeholder="https://api.openai.com/v1 or compatible endpoint"></div></div>
                 <div class="form-row"><div class="form-field"><label>Anthropic API Key (optional)</label><input id="s-anthropic" type="password"></div></div>
+                <div class="form-row"><div class="form-field"><label>Network Password (optional)</label><input id="s-network-password" type="password" placeholder="Required for non-localhost browser access"></div></div>
             </div>
             <div class="divider"></div>
             <div class="form-section">
@@ -164,7 +165,7 @@ export function initSettings({ ws, state }) {
     `;
     document.getElementById('content').appendChild(page);
 
-    const secretInputIds = ['s-openrouter', 's-openai', 's-anthropic', 's-gh-token'];
+    const secretInputIds = ['s-openrouter', 's-openai', 's-anthropic', 's-network-password', 's-gh-token'];
     secretInputIds.forEach((id) => {
         const input = document.getElementById(id);
         input.addEventListener('focus', () => {
@@ -177,6 +178,7 @@ export function initSettings({ ws, state }) {
         if (s.OPENAI_API_KEY) document.getElementById('s-openai').value = s.OPENAI_API_KEY;
         if (s.OPENAI_BASE_URL) document.getElementById('s-openai-base-url').value = s.OPENAI_BASE_URL;
         if (s.ANTHROPIC_API_KEY) document.getElementById('s-anthropic').value = s.ANTHROPIC_API_KEY;
+        if (s.OUROBOROS_NETWORK_PASSWORD) document.getElementById('s-network-password').value = s.OUROBOROS_NETWORK_PASSWORD;
         if (s.OUROBOROS_MODEL) document.getElementById('s-model').value = s.OUROBOROS_MODEL;
         if (s.OUROBOROS_MODEL_CODE) document.getElementById('s-model-code').value = s.OUROBOROS_MODEL_CODE;
         if (s.OUROBOROS_MODEL_LIGHT) document.getElementById('s-model-light').value = s.OUROBOROS_MODEL_LIGHT;
@@ -329,6 +331,8 @@ export function initSettings({ ws, state }) {
         if (oaiKey && !oaiKey.includes('...')) body.OPENAI_API_KEY = oaiKey;
         const antKey = document.getElementById('s-anthropic').value;
         if (antKey && !antKey.includes('...')) body.ANTHROPIC_API_KEY = antKey;
+        const networkPassword = document.getElementById('s-network-password').value;
+        if (networkPassword && !networkPassword.includes('...')) body.OUROBOROS_NETWORK_PASSWORD = networkPassword;
         const ghToken = document.getElementById('s-gh-token').value;
         if (ghToken && !ghToken.includes('...')) body.GITHUB_TOKEN = ghToken;
 
