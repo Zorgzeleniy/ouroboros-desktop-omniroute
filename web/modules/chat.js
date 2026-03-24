@@ -31,10 +31,35 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     const sentInputHistory = [];
     const seenMessageKeys = new Set();
     const messageKeyOrder = [];
+    const localUserBubbles = new Map();
     let historyLoaded = false;
     let historySyncPromise = null;
     let inputHistoryIndex = -1;
     let inputDraftBeforeHistory = '';
+    const clientSessionId = getOrCreateClientSessionId();
+
+    function getOrCreateClientSessionId() {
+        const storageKey = 'ouro_chat_client_session_id';
+        try {
+            const existing = sessionStorage.getItem(storageKey);
+            if (existing) return existing;
+            const generated = (globalThis.crypto?.randomUUID?.() || `session-${Date.now()}-${Math.random().toString(16).slice(2)}`).replace(/[^a-zA-Z0-9-]/g, '');
+            sessionStorage.setItem(storageKey, generated);
+            return generated;
+        } catch {
+            return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+    }
+
+    function shortSessionId(sessionId) {
+        const normalized = String(sessionId || '').trim();
+        return normalized ? normalized.slice(0, 8) : 'unknown';
+    }
+
+    function buildUserSenderLabel(sessionId, isLocalSender) {
+        const prefix = isLocalSender ? 'You' : 'Another User';
+        return `${prefix} (${shortSessionId(sessionId)})`;
+    }
 
     function buildMessageKey(role, text, timestamp, isProgress = false, systemType = '') {
         if (!timestamp) return '';
@@ -78,7 +103,8 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     const pendingUserBubbles = new Map();
     let welcomeShown = false;
 
-    function getSenderLabel(role, isProgress = false, systemType = '') {
+    function getSenderLabel(role, isProgress = false, systemType = '', senderLabel = '') {
+        if (senderLabel) return senderLabel;
         if (role === 'user') return 'You';
         if (role === 'system') {
             return systemType === 'task_summary' ? '📋 Task Summary' : '📋 System';
@@ -92,6 +118,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         const ephemeral = !!opts.ephemeral;
         const clientMessageId = opts.clientMessageId || '';
         const systemType = opts.systemType || '';
+        const senderLabel = opts.senderLabel || '';
         const ts = timestamp || new Date().toISOString();
         const messageKey = role === 'user' ? '' : buildMessageKey(role, text, ts, isProgress, systemType);
         if (messageKey && seenMessageKeys.has(messageKey)) return null;
@@ -104,7 +131,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         if (ephemeral) bubble.dataset.ephemeral = '1';
         if (clientMessageId) bubble.dataset.clientMessageId = clientMessageId;
         if (systemType) bubble.dataset.systemType = systemType;
-        const sender = getSenderLabel(role, isProgress, systemType);
+        const sender = getSenderLabel(role, isProgress, systemType, senderLabel);
         const rendered = role === 'user' ? escapeHtml(text) : renderMarkdown(text);
         const timeFmt = formatMsgTime(ts);
         const timeHtml = timeFmt
@@ -129,7 +156,32 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         }
         rememberMessageKey(messageKey);
         if (pending && clientMessageId) pendingUserBubbles.set(clientMessageId, bubble);
+        if (role === 'user' && clientMessageId) localUserBubbles.set(clientMessageId, bubble);
         return bubble;
+    }
+
+    function reconcileLocalUserMessage(msg) {
+        const clientMessageId = msg?.client_message_id || '';
+        if (!clientMessageId) return false;
+        const bubble = localUserBubbles.get(clientMessageId);
+        if (!bubble) return false;
+
+        bubble.classList.remove('pending');
+        bubble.querySelector('.msg-pending')?.remove();
+
+        const ts = msg.ts || new Date().toISOString();
+        const timeFmt = formatMsgTime(ts);
+        let timeEl = bubble.querySelector('.msg-time');
+        if (!timeFmt) return true;
+
+        if (!timeEl) {
+            timeEl = document.createElement('div');
+            timeEl.className = 'msg-time';
+            bubble.appendChild(timeEl);
+        }
+        timeEl.textContent = timeFmt.short;
+        timeEl.title = timeFmt.full;
+        return true;
     }
 
     function ensureWelcomeMessage() {
@@ -193,10 +245,11 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         inputDraftBeforeHistory = '';
         input.value = '';
         input.style.height = 'auto';
-        const result = ws.send({ type: 'chat', content: text });
+        const result = ws.send({ type: 'chat', content: text, sender_session_id: clientSessionId });
         addMessage(text, 'user', false, null, false, {
             pending: result?.status === 'queued',
             clientMessageId: result?.clientMessageId || '',
+            senderLabel: buildUserSenderLabel(clientSessionId, true),
         });
     }
 
@@ -277,6 +330,22 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     ws.on('typing', () => { showTyping(); });
 
     ws.on('chat', (msg) => {
+        if (msg.role === 'user') {
+            const reconciled = reconcileLocalUserMessage(msg);
+            if (!reconciled) {
+                const senderSessionId = String(msg.sender_session_id || '').trim();
+                const isLocalSender = senderSessionId && senderSessionId === clientSessionId;
+                addMessage(msg.content, 'user', false, msg.ts || null, false, {
+                    clientMessageId: msg.client_message_id || '',
+                    senderLabel: buildUserSenderLabel(senderSessionId, isLocalSender),
+                });
+            }
+            if (state.activePage !== 'chat') {
+                state.unreadCount++;
+                updateUnreadBadge();
+            }
+            return;
+        }
         if (msg.role === 'assistant' || msg.role === 'system') {
             hideTyping();
             addMessage(msg.content, msg.role, msg.markdown, msg.ts || null, !!msg.is_progress, {

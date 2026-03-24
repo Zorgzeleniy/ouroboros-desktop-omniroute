@@ -443,11 +443,28 @@ export function initSettings({ ws, state }) {
                 </div>
             </div>
         </div>
+        <div id="settings-modal" class="settings-modal" hidden>
+            <div class="settings-modal-backdrop" data-settings-modal-close="backdrop"></div>
+            <div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+                <div class="settings-modal-title" id="settings-modal-title"></div>
+                <div class="settings-modal-message" id="settings-modal-message"></div>
+                <div class="settings-modal-actions">
+                    <button type="button" class="btn btn-default" id="settings-modal-cancel">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="settings-modal-confirm">Reset All Data</button>
+                </div>
+            </div>
+        </div>
     `;
     document.getElementById('content').appendChild(page);
 
     const settingsTabs = Array.from(page.querySelectorAll('[data-settings-tab]'));
     const settingsPanels = Array.from(page.querySelectorAll('[data-settings-panel]'));
+    const settingsModalEl = page.querySelector('#settings-modal');
+    const settingsModalTitleEl = page.querySelector('#settings-modal-title');
+    const settingsModalMessageEl = page.querySelector('#settings-modal-message');
+    const settingsModalCancelBtn = page.querySelector('#settings-modal-cancel');
+    const settingsModalConfirmBtn = page.querySelector('#settings-modal-confirm');
+    let settingsModalResolve = null;
 
     function setActiveSettingsTab(tabId) {
         settingsTabs.forEach((tab) => {
@@ -465,6 +482,36 @@ export function initSettings({ ws, state }) {
     settingsTabs.forEach((tab) => {
         tab.addEventListener('click', () => setActiveSettingsTab(tab.dataset.settingsTab));
     });
+
+    function closeSettingsModal(result) {
+        settingsModalEl.hidden = true;
+        const resolver = settingsModalResolve;
+        settingsModalResolve = null;
+        if (resolver) resolver(result);
+    }
+
+    function showSettingsModal({
+        title,
+        message,
+        confirmLabel = 'OK',
+        cancelLabel = 'Cancel',
+        hideCancel = false,
+        confirmClassName = 'btn btn-primary',
+    }) {
+        settingsModalTitleEl.textContent = title || '';
+        settingsModalMessageEl.textContent = message || '';
+        settingsModalConfirmBtn.textContent = confirmLabel;
+        settingsModalConfirmBtn.className = confirmClassName;
+        settingsModalCancelBtn.textContent = cancelLabel;
+        settingsModalCancelBtn.hidden = hideCancel;
+        settingsModalEl.hidden = false;
+        queueMicrotask(() => {
+            (hideCancel ? settingsModalConfirmBtn : settingsModalCancelBtn).focus();
+        });
+        return new Promise((resolve) => {
+            settingsModalResolve = resolve;
+        });
+    }
 
     const secretInputIds = ['s-openrouter', 's-openai-official', 's-openai-compatible-key', 's-cloudru-key', 's-anthropic', 's-network-password', 's-gh-token'];
     secretInputIds.forEach((id) => {
@@ -497,6 +544,32 @@ export function initSettings({ ws, state }) {
             const chevron = button.querySelector('.provider-chevron');
             if (chevron) chevron.textContent = expanded ? '⌄' : '⌃';
         });
+    });
+
+    settingsModalCancelBtn.addEventListener('click', () => {
+        closeSettingsModal({ confirmed: false });
+    });
+
+    settingsModalConfirmBtn.addEventListener('click', () => {
+        closeSettingsModal({ confirmed: true });
+    });
+
+    settingsModalEl.addEventListener('click', (event) => {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        if (target?.dataset.settingsModalClose === 'backdrop') {
+            closeSettingsModal({ confirmed: false });
+        }
+    });
+
+    settingsModalEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeSettingsModal({ confirmed: false });
+        }
+        if (event.key === 'Enter' && event.target !== settingsModalCancelBtn) {
+            event.preventDefault();
+            closeSettingsModal({ confirmed: true });
+        }
     });
 
     const DEFAULT_MODEL_VALUES = {
@@ -1030,17 +1103,43 @@ export function initSettings({ ws, state }) {
     }
 
     async function resetAllData() {
-        if (!confirm('This will delete all runtime data (state, memory, logs, settings) and restart.\nThe repo (agent code) will be preserved.\nYou will need to re-enter your API key.\n\nContinue?')) return;
+        const result = await showSettingsModal({
+            title: 'Reset All Data?',
+            message: 'This will delete all runtime data (state, memory, logs, settings) and restart.\nThe repo (agent code) will be preserved.\nYou will need to re-enter your API key.\n\nContinue?',
+            confirmLabel: 'Reset All Data',
+            cancelLabel: 'Cancel',
+            confirmClassName: 'btn btn-danger',
+        });
+        if (!result?.confirmed) return;
         try {
             const res = await fetch('/api/reset', { method: 'POST' });
             const data = await res.json();
             if (data.status === 'ok') {
-                alert('Deleted: ' + (data.deleted.join(', ') || 'nothing') + '\nRestarting...');
+                await showSettingsModal({
+                    title: 'Reset Complete',
+                    message: 'Deleted: ' + (data.deleted.join(', ') || 'nothing') + '\nReloading the app state...',
+                    confirmLabel: 'OK',
+                    hideCancel: true,
+                    confirmClassName: 'btn btn-primary',
+                });
+                window.location.reload();
             } else {
-                alert('Error: ' + (data.error || 'unknown'));
+                await showSettingsModal({
+                    title: 'Reset Failed',
+                    message: 'Error: ' + (data.error || 'unknown'),
+                    confirmLabel: 'OK',
+                    hideCancel: true,
+                    confirmClassName: 'btn btn-primary',
+                });
             }
         } catch (e) {
-            alert('Reset failed: ' + e.message);
+            await showSettingsModal({
+                title: 'Reset Failed',
+                message: 'Reset failed: ' + e.message,
+                confirmLabel: 'OK',
+                hideCancel: true,
+                confirmClassName: 'btn btn-primary',
+            });
         }
     }
 

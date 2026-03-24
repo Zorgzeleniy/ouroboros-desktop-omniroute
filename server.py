@@ -134,6 +134,7 @@ _supervisor_error: Optional[str] = None
 _event_loop: Optional[asyncio.AbstractEventLoop] = None
 _supervisor_thread: Optional[threading.Thread] = None
 _supervisor_ctx: Any = None
+_supervisor_stop_requested = threading.Event()
 
 
 def _settings_enable_supervisor(settings: dict) -> bool:
@@ -223,6 +224,7 @@ def _ensure_supervisor_started(settings: dict) -> bool:
     if _supervisor_thread and _supervisor_thread.is_alive():
         return False
 
+    _supervisor_stop_requested.clear()
     _supervisor_ready.clear()
     _supervisor_error = None
     _supervisor_thread = threading.Thread(
@@ -360,7 +362,7 @@ def _run_supervisor(settings: dict) -> None:
     # Main supervisor loop
     offset = 0
     crash_count = 0
-    while not _restart_requested.is_set():
+    while not _restart_requested.is_set() and not _supervisor_stop_requested.is_set():
         try:
             rotate_chat_log_if_needed(DATA_DIR)
             ensure_workers_healthy()
@@ -481,6 +483,77 @@ def _run_supervisor(settings: dict) -> None:
                 return
             time.sleep(min(30, 2 ** crash_count))
 
+    log.info("Supervisor loop stopped.")
+
+
+def _stop_live_runtime() -> None:
+    global _supervisor_thread, _supervisor_ctx, _supervisor_error
+
+    _supervisor_stop_requested.set()
+
+    try:
+        consciousness = getattr(_supervisor_ctx, "consciousness", None)
+        if consciousness is not None:
+            consciousness.stop()
+    except Exception:
+        log.debug("Failed to stop background consciousness during runtime reset", exc_info=True)
+
+    try:
+        from ouroboros.local_model import get_manager
+        get_manager().stop_server()
+    except Exception:
+        log.debug("Failed to stop local model server during runtime reset", exc_info=True)
+
+    try:
+        from ouroboros.tools.shell import kill_all_tracked_subprocesses
+        kill_all_tracked_subprocesses()
+    except Exception:
+        log.debug("Failed to kill tracked subprocesses during runtime reset", exc_info=True)
+
+    try:
+        from supervisor.workers import kill_workers
+        kill_workers(force=True)
+    except Exception:
+        log.debug("Failed to kill supervisor workers during runtime reset", exc_info=True)
+
+    thread = _supervisor_thread
+    if thread and thread.is_alive():
+        thread.join(timeout=4)
+        if thread.is_alive():
+            log.warning("Supervisor thread did not stop cleanly within timeout.")
+
+    try:
+        from supervisor import workers
+        workers.WORKERS.clear()
+        workers.RUNNING.clear()
+        workers.PENDING[:] = []
+        workers._chat_agent = None
+    except Exception:
+        log.debug("Failed to clear supervisor worker caches during runtime reset", exc_info=True)
+
+    _supervisor_ctx = None
+    _supervisor_error = None
+    _supervisor_ready.clear()
+    if not (thread and thread.is_alive()):
+        _supervisor_thread = None
+
+
+def _clear_directory_contents(path: pathlib.Path, *, preserve_names: Optional[set[str]] = None) -> bool:
+    import shutil
+
+    if not path.exists():
+        return False
+
+    preserve_names = preserve_names or set()
+    for child in path.iterdir():
+        if child.name in preserve_names:
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+    return True
+
 
 def _handle_restart_in_supervisor(evt: Dict[str, Any], ctx: Any) -> None:
     """Handle restart request from agent — graceful shutdown + exit(42)."""
@@ -585,6 +658,15 @@ async def ws_endpoint(websocket: WebSocket) -> None:
             payload = msg.get("content", "") if msg_type == "chat" else msg.get("cmd", "")
             if msg_type in ("chat", "command") and payload:
                 try:
+                    if msg_type == "chat":
+                        await broadcast_ws({
+                            "type": "chat",
+                            "role": "user",
+                            "content": payload,
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                            "client_message_id": str(msg.get("client_message_id", "") or ""),
+                            "sender_session_id": str(msg.get("sender_session_id", "") or ""),
+                        })
                     from supervisor.message_bus import get_bridge
                     bridge = get_bridge()
                     bridge.ui_send(payload)
@@ -948,22 +1030,53 @@ async def api_model_catalog(_request: Request) -> JSONResponse:
 async def api_reset(request: Request) -> JSONResponse:
     """Reset all runtime data (state, memory, logs, settings) but keep repo.
 
-    After reset the launcher will show the onboarding wizard on next start.
+    This is a soft reset: runtime is stopped and local data is cleared
+    in-place without terminating the server process.
     """
-    import shutil
     try:
+        preserved_port = PORT_FILE.read_text(encoding="utf-8").strip() if PORT_FILE.exists() else ""
+
+        _stop_live_runtime()
+
         deleted = []
-        for subdir in ("state", "memory", "logs", "archive", "locks", "task_results"):
+
+        for subdir in ("state", "memory", "archive", "task_results"):
             p = DATA_DIR / subdir
             if p.exists():
+                import shutil
                 shutil.rmtree(p, ignore_errors=True)
                 deleted.append(subdir)
+
+        locks_dir = DATA_DIR / "locks"
+        if _clear_directory_contents(locks_dir):
+            deleted.append("locks")
+
+        logs_dir = DATA_DIR / "logs"
+        if logs_dir.exists():
+            _clear_directory_contents(logs_dir, preserve_names={"server.log"})
+            server_log_path = logs_dir / "server.log"
+            server_log_path.parent.mkdir(parents=True, exist_ok=True)
+            server_log_path.write_text("", encoding="utf-8")
+            deleted.append("logs")
+
         settings_file = DATA_DIR / "settings.json"
         if settings_file.exists():
             settings_file.unlink()
             deleted.append("settings.json")
-        _request_restart_exit()
-        return JSONResponse({"status": "ok", "deleted": deleted, "restarting": True})
+
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if preserved_port:
+            PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+            PORT_FILE.write_text(preserved_port, encoding="utf-8")
+
+        _apply_settings_to_env(dict(_SETTINGS_DEFAULTS))
+
+        return JSONResponse({
+            "status": "ok",
+            "deleted": deleted,
+            "restarting": False,
+            "soft_reset": True,
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

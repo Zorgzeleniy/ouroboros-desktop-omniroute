@@ -513,6 +513,55 @@ body {
     margin-top: 16px;
 }
 
+.settings-modal {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+}
+
+.settings-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(6, 7, 10, 0.66);
+    backdrop-filter: blur(4px);
+}
+
+.settings-modal-card {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: min(460px, calc(100% - 32px));
+    transform: translate(-50%, -50%);
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+        linear-gradient(180deg, rgba(201, 53, 69, 0.10), transparent 100px),
+        rgba(18, 20, 26, 0.98);
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.45);
+}
+
+.settings-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.settings-modal-message {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    white-space: pre-line;
+}
+
+.settings-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
 .page-header {
     display: flex;
     align-items: center;
