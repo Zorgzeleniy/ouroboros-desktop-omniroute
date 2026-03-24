@@ -927,6 +927,7 @@ body {
     flex-direction: column;
     gap: 18px;
     max-width: 980px;
+    padding-top: 6px;
 }
 
 .settings-tabbar {
@@ -936,14 +937,28 @@ body {
     padding: 8px;
     border-radius: 18px;
     background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-        rgba(12, 16, 24, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025)),
+        rgba(10, 14, 22, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 14px 30px rgba(2, 8, 23, 0.22);
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 6;
     backdrop-filter: blur(14px);
+    margin-bottom: 2px;
+}
+
+.settings-tabbar::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: -12px;
+    height: 14px;
+    background: linear-gradient(180deg, rgba(10, 14, 22, 0.32), transparent);
+    pointer-events: none;
 }
 
 .settings-tab {
@@ -1012,6 +1027,52 @@ body {
     color: var(--text-secondary);
     font-size: 13px;
     line-height: 1.5;
+}
+
+.settings-subsection {
+    position: relative;
+    padding: 18px 18px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+        rgba(255, 255, 255, 0.02);
+}
+
+.settings-subsection-emphasis {
+    border-color: rgba(96, 165, 250, 0.14);
+    background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+        rgba(255, 255, 255, 0.02);
+}
+
+.settings-subsection-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.settings-subsection-header h4 {
+    margin: 0 0 5px;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.settings-subsection-header p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 620px;
+}
+
+.settings-subsection-divider {
+    height: 1px;
+    margin: 20px 6px;
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.36), transparent);
 }
 
 .provider-list {

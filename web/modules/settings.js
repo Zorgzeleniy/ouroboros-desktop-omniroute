@@ -31,8 +31,7 @@ export function initSettings({ ws, state }) {
             <div class="settings-shell">
                 <div class="settings-tabbar" role="tablist" aria-label="Settings sections">
                     <button class="settings-tab active" data-settings-tab="api-keys" role="tab" aria-selected="true">AI Providers</button>
-                    <button class="settings-tab" data-settings-tab="local-model" role="tab" aria-selected="false">Local Model</button>
-                    <button class="settings-tab" data-settings-tab="models" role="tab" aria-selected="false">Models</button>
+                    <button class="settings-tab" data-settings-tab="models" role="tab" aria-selected="false">AI Models</button>
                     <button class="settings-tab" data-settings-tab="reasoning-effort" role="tab" aria-selected="false">Reasoning Effort</button>
                     <button class="settings-tab" data-settings-tab="commit-review" role="tab" aria-selected="false">Commit Review</button>
                     <button class="settings-tab" data-settings-tab="runtime" role="tab" aria-selected="false">Runtime</button>
@@ -45,7 +44,7 @@ export function initSettings({ ws, state }) {
                         <div class="settings-card-header">
                             <div>
                                 <h3>AI Providers</h3>
-                                <p>Configure official and compatible providers independently, with separate backend slots for each.</p>
+                                <p>Set up your provider keys.</p>
                             </div>
                         </div>
                         <div class="provider-list">
@@ -156,125 +155,129 @@ export function initSettings({ ws, state }) {
                     </div>
                 </div>
 
-                <div class="settings-panel" data-settings-panel="local-model" role="tabpanel" hidden>
-                    <div class="settings-card">
-                        <div class="settings-card-header">
-                            <div>
-                                <h3>Local Model</h3>
-                                <p>Configure the GGUF runtime and manage its lifecycle from this panel.</p>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-field"><label>Model Source</label><input id="s-local-source" placeholder="bartowski/Llama-3.3-70B-Instruct-GGUF or /path/to/model.gguf" style="width:400px"></div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-field"><label>GGUF Filename (for HF repos)</label><input id="s-local-filename" placeholder="Llama-3.3-70B-Instruct-Q4_K_M.gguf" style="width:400px"></div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-field"><label>Port</label><input id="s-local-port" type="number" value="8766" style="width:100px"></div>
-                            <div class="form-field"><label>GPU Layers (-1 = all)</label><input id="s-local-gpu-layers" type="number" value="-1" style="width:100px"></div>
-                            <div class="form-field"><label>Context Length</label><input id="s-local-ctx" type="number" value="16384" style="width:120px" placeholder="16384"></div>
-                            <div class="form-field"><label>Chat Format</label><input id="s-local-chat-format" value="" placeholder="auto-detect" style="width:200px"></div>
-                        </div>
-                        <div class="form-row settings-inline-actions">
-                            <button class="btn btn-primary" id="btn-local-start">Start</button>
-                            <button class="btn btn-primary" id="btn-local-stop" style="opacity:0.5">Stop</button>
-                            <button class="btn btn-primary" id="btn-local-test" style="opacity:0.5">Test Tool Calling</button>
-                        </div>
-                        <div id="local-model-status" class="settings-note">Status: Offline</div>
-                        <div id="local-model-test-result" style="margin-top:4px;font-size:12px;color:var(--text-muted);display:none"></div>
-                        <div class="settings-panel-actions">
-                            <button class="btn btn-save" data-settings-save>Save Settings</button>
-                            <button class="btn btn-danger" data-settings-reset>Reset All Data</button>
-                        </div>
-                        <div class="settings-status" style="display:none"></div>
-                    </div>
-                </div>
-
                 <div class="settings-panel" data-settings-panel="models" role="tabpanel" hidden>
                     <div class="settings-card">
                         <div class="settings-card-header">
                             <div>
-                                <h3>Models</h3>
-                                <p>Choose default model lanes and decide which of them should route through your local runtime.</p>
+                                <h3>AI Models</h3>
+                                <p>Choose your default models and local routing.</p>
                             </div>
                         </div>
-                        <div class="settings-note" style="margin:0 0 12px 0">
-                            Choose from the OpenRouter catalog when available. If your current value is not in the catalog, it will be kept as a custom entry. Enable <code>Local</code> to route that lane through the GGUF server configured above.
-                        </div>
-                        <div class="models-catalog-toolbar">
-                            <div id="models-catalog-status" class="settings-note models-catalog-status">
-                                Loading model catalog...
-                            </div>
-                            <button class="btn btn-default models-refresh-btn" id="btn-models-refresh" type="button">Refresh catalog</button>
-                        </div>
-                        <div class="form-row" style="align-items:flex-end">
-                            <div class="form-field">
-                                <label>Main Model</label>
-                                <div class="model-combobox" data-model-field="s-model">
-                                    <input id="s-model-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
-                                    <input id="s-model" type="hidden">
-                                    <div id="s-model-menu" class="model-combobox-menu" hidden></div>
+                        <section class="settings-subsection settings-subsection-emphasis">
+                            <div class="settings-subsection-header">
+                                <div>
+                                    <h4>Models</h4>
+                                    <p>Pick a model for each lane.</p>
                                 </div>
                             </div>
-                            <label class="local-toggle">
-                                <input type="checkbox" id="s-local-main">
-                                <span class="local-toggle-switch" aria-hidden="true"></span>
-                                <span class="local-toggle-text">Local</span>
-                            </label>
-                        </div>
-                        <div class="settings-note model-select-note" id="s-model-note"></div>
-                        <div class="form-row" style="align-items:flex-end">
-                            <div class="form-field">
-                                <label>Code Model</label>
-                                <div class="model-combobox" data-model-field="s-model-code">
-                                    <input id="s-model-code-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
-                                    <input id="s-model-code" type="hidden">
-                                    <div id="s-model-code-menu" class="model-combobox-menu" hidden></div>
+                            <div class="settings-note" style="margin:0 0 12px 0">
+                                Search, pick from configured providers, or keep a custom model ID.
+                            </div>
+                            <div class="models-catalog-toolbar">
+                                <div id="models-catalog-status" class="settings-note models-catalog-status">
+                                    Loading model catalog...
+                                </div>
+                                <button class="btn btn-default models-refresh-btn" id="btn-models-refresh" type="button">Refresh catalog</button>
+                            </div>
+                            <div class="form-row" style="align-items:flex-end">
+                                <div class="form-field">
+                                    <label>Main Model</label>
+                                    <div class="model-combobox" data-model-field="s-model">
+                                        <input id="s-model-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
+                                        <input id="s-model" type="hidden">
+                                        <div id="s-model-menu" class="model-combobox-menu" hidden></div>
+                                    </div>
+                                </div>
+                                <label class="local-toggle">
+                                    <input type="checkbox" id="s-local-main">
+                                    <span class="local-toggle-switch" aria-hidden="true"></span>
+                                    <span class="local-toggle-text">Local</span>
+                                </label>
+                            </div>
+                            <div class="settings-note model-select-note" id="s-model-note"></div>
+                            <div class="form-row" style="align-items:flex-end">
+                                <div class="form-field">
+                                    <label>Code Model</label>
+                                    <div class="model-combobox" data-model-field="s-model-code">
+                                        <input id="s-model-code-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
+                                        <input id="s-model-code" type="hidden">
+                                        <div id="s-model-code-menu" class="model-combobox-menu" hidden></div>
+                                    </div>
+                                </div>
+                                <label class="local-toggle">
+                                    <input type="checkbox" id="s-local-code">
+                                    <span class="local-toggle-switch" aria-hidden="true"></span>
+                                    <span class="local-toggle-text">Local</span>
+                                </label>
+                            </div>
+                            <div class="settings-note model-select-note" id="s-model-code-note"></div>
+                            <div class="form-row" style="align-items:flex-end">
+                                <div class="form-field">
+                                    <label>Light Model</label>
+                                    <div class="model-combobox" data-model-field="s-model-light">
+                                        <input id="s-model-light-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
+                                        <input id="s-model-light" type="hidden">
+                                        <div id="s-model-light-menu" class="model-combobox-menu" hidden></div>
+                                    </div>
+                                </div>
+                                <label class="local-toggle">
+                                    <input type="checkbox" id="s-local-light">
+                                    <span class="local-toggle-switch" aria-hidden="true"></span>
+                                    <span class="local-toggle-text">Local</span>
+                                </label>
+                            </div>
+                            <div class="settings-note model-select-note" id="s-model-light-note"></div>
+                            <div class="form-row" style="align-items:flex-end">
+                                <div class="form-field">
+                                    <label>Fallback Model</label>
+                                    <div class="model-combobox" data-model-field="s-model-fallback">
+                                        <input id="s-model-fallback-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
+                                        <input id="s-model-fallback" type="hidden">
+                                        <div id="s-model-fallback-menu" class="model-combobox-menu" hidden></div>
+                                    </div>
+                                </div>
+                                <label class="local-toggle">
+                                    <input type="checkbox" id="s-local-fallback">
+                                    <span class="local-toggle-switch" aria-hidden="true"></span>
+                                    <span class="local-toggle-text">Local</span>
+                                </label>
+                            </div>
+                            <div class="settings-note model-select-note" id="s-model-fallback-note"></div>
+                            <div class="form-row">
+                                <div class="form-field"><label>Claude Code Model</label><input id="s-claude-code-model" value="opus" placeholder="sonnet, opus, or full name" style="width:250px"></div>
+                            </div>
+                        </section>
+
+                        <div class="settings-subsection-divider" aria-hidden="true"></div>
+
+                        <section class="settings-subsection">
+                            <div class="settings-subsection-header">
+                                <div>
+                                    <h4>Local Model Runtime</h4>
+                                    <p>Run and manage your local GGUF model.</p>
                                 </div>
                             </div>
-                            <label class="local-toggle">
-                                <input type="checkbox" id="s-local-code">
-                                <span class="local-toggle-switch" aria-hidden="true"></span>
-                                <span class="local-toggle-text">Local</span>
-                            </label>
-                        </div>
-                        <div class="settings-note model-select-note" id="s-model-code-note"></div>
-                        <div class="form-row" style="align-items:flex-end">
-                            <div class="form-field">
-                                <label>Light Model</label>
-                                <div class="model-combobox" data-model-field="s-model-light">
-                                    <input id="s-model-light-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
-                                    <input id="s-model-light" type="hidden">
-                                    <div id="s-model-light-menu" class="model-combobox-menu" hidden></div>
-                                </div>
+                            <div class="form-row">
+                                <div class="form-field"><label>Model Source</label><input id="s-local-source" placeholder="bartowski/Llama-3.3-70B-Instruct-GGUF or /path/to/model.gguf" style="width:400px"></div>
                             </div>
-                            <label class="local-toggle">
-                                <input type="checkbox" id="s-local-light">
-                                <span class="local-toggle-switch" aria-hidden="true"></span>
-                                <span class="local-toggle-text">Local</span>
-                            </label>
-                        </div>
-                        <div class="settings-note model-select-note" id="s-model-light-note"></div>
-                        <div class="form-row" style="align-items:flex-end">
-                            <div class="form-field">
-                                <label>Fallback Model</label>
-                                <div class="model-combobox" data-model-field="s-model-fallback">
-                                    <input id="s-model-fallback-display" class="model-combobox-input" placeholder="Type to search or enter a custom model" autocomplete="off" style="width:320px">
-                                    <input id="s-model-fallback" type="hidden">
-                                    <div id="s-model-fallback-menu" class="model-combobox-menu" hidden></div>
-                                </div>
+                            <div class="form-row">
+                                <div class="form-field"><label>GGUF Filename (for HF repos)</label><input id="s-local-filename" placeholder="Llama-3.3-70B-Instruct-Q4_K_M.gguf" style="width:400px"></div>
                             </div>
-                            <label class="local-toggle">
-                                <input type="checkbox" id="s-local-fallback">
-                                <span class="local-toggle-switch" aria-hidden="true"></span>
-                                <span class="local-toggle-text">Local</span>
-                            </label>
-                        </div>
-                        <div class="settings-note model-select-note" id="s-model-fallback-note"></div>
-                        <div class="form-row">
-                            <div class="form-field"><label>Claude Code Model</label><input id="s-claude-code-model" value="opus" placeholder="sonnet, opus, or full name" style="width:250px"></div>
-                        </div>
+                            <div class="form-row">
+                                <div class="form-field"><label>Port</label><input id="s-local-port" type="number" value="8766" style="width:100px"></div>
+                                <div class="form-field"><label>GPU Layers (-1 = all)</label><input id="s-local-gpu-layers" type="number" value="-1" style="width:100px"></div>
+                                <div class="form-field"><label>Context Length</label><input id="s-local-ctx" type="number" value="16384" style="width:120px" placeholder="16384"></div>
+                                <div class="form-field"><label>Chat Format</label><input id="s-local-chat-format" value="" placeholder="auto-detect" style="width:200px"></div>
+                            </div>
+                            <div class="form-row settings-inline-actions">
+                                <button class="btn btn-primary" id="btn-local-start">Start</button>
+                                <button class="btn btn-primary" id="btn-local-stop" style="opacity:0.5">Stop</button>
+                                <button class="btn btn-primary" id="btn-local-test" style="opacity:0.5">Test Tool Calling</button>
+                            </div>
+                            <div id="local-model-status" class="settings-note">Status: Offline</div>
+                            <div id="local-model-test-result" style="margin-top:4px;font-size:12px;color:var(--text-muted);display:none"></div>
+                        </section>
+
                         <div class="settings-panel-actions">
                             <button class="btn btn-save" data-settings-save>Save Settings</button>
                             <button class="btn btn-danger" data-settings-reset>Reset All Data</button>
@@ -288,10 +291,10 @@ export function initSettings({ ws, state }) {
                         <div class="settings-card-header">
                             <div>
                                 <h3>Reasoning Effort</h3>
-                                <p>Control how much thinking budget each task lane gets before it responds.</p>
+                                <p>Set thinking depth by task type.</p>
                             </div>
                         </div>
-                        <div class="settings-note" style="margin-bottom:12px">Per-task-type reasoning effort. Controls how deeply the model thinks before responding.</div>
+                        <div class="settings-note" style="margin-bottom:12px">Higher effort is slower but usually more thorough.</div>
                         <div class="form-row">
                             <div class="form-field">
                                 <label>Task / Chat</label>
@@ -343,7 +346,7 @@ export function initSettings({ ws, state }) {
                         <div class="settings-card-header">
                             <div>
                                 <h3>Commit Review</h3>
-                                <p>Set the review quorum and decide whether findings are advisory or blocking.</p>
+                                <p>Choose how pre-commit review behaves.</p>
                             </div>
                         </div>
                         <div class="form-row">
@@ -376,7 +379,7 @@ export function initSettings({ ws, state }) {
                         <div class="settings-card-header">
                             <div>
                                 <h3>Runtime</h3>
-                                <p>Tune workers, budgets, and timeout behavior without scrolling through the entire page.</p>
+                                <p>Adjust workers, budget, and timeouts.</p>
                             </div>
                         </div>
                         <div class="form-row">
@@ -403,7 +406,7 @@ export function initSettings({ ws, state }) {
                         <div class="settings-card-header">
                             <div>
                                 <h3>GitHub (optional)</h3>
-                                <p>Add repository context for optional GitHub-powered flows without cluttering the core runtime settings.</p>
+                                <p>Connect a repo for optional GitHub flows.</p>
                             </div>
                         </div>
                         <div class="form-row"><div class="form-field"><label>GitHub Token</label>${renderSecretInput('s-gh-token', 'ghp_...')}</div></div>
@@ -421,7 +424,7 @@ export function initSettings({ ws, state }) {
                         <div class="settings-card-header">
                             <div>
                                 <h3>General</h3>
-                                <p>Shared runtime controls that do not belong to a model provider.</p>
+                                <p>Small app-wide settings.</p>
                             </div>
                         </div>
                         <div class="form-row">

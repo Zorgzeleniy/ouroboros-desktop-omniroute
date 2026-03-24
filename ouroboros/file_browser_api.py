@@ -70,11 +70,11 @@ def _get_file_browser_root(request: Request) -> pathlib.Path:
 def _resolve_target(request: Request, rel_path: str) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
     root_dir = _get_file_browser_root(request)
     requested = root_dir / safe_relpath(rel_path or ".")
-    resolved = requested.resolve(strict=False)
     try:
-        resolved.relative_to(root_dir)
+        requested.relative_to(root_dir)
     except ValueError as exc:
         raise ValueError("Path escapes file browser root.") from exc
+    resolved = requested.resolve(strict=False)
     return root_dir, requested, resolved
 
 
@@ -121,7 +121,7 @@ def _guess_media_type(path: pathlib.Path) -> str:
 
 def _entry_within_root(entry: pathlib.Path, root_dir: pathlib.Path) -> bool:
     try:
-        entry.resolve(strict=False).relative_to(root_dir)
+        entry.relative_to(root_dir)
         return True
     except Exception:
         return False
@@ -475,7 +475,7 @@ async def api_files_transfer(request: Request) -> JSONResponse:
         if destination.exists():
             return JSONResponse({"error": f"Path already exists: {destination.name}"}, status_code=409)
         try:
-            destination.resolve(strict=False).relative_to(root_dir)
+            destination.relative_to(root_dir)
         except ValueError:
             return JSONResponse({"error": "Destination escapes file browser root."}, status_code=400)
 
