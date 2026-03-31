@@ -69,7 +69,7 @@ server.py (Starlette+uvicorn) ← HTTP + WebSocket on localhost:8765
    - Starts `server.py` as a subprocess via embedded Python
    - Shows PyWebView window pointed at `http://127.0.0.1:8765`
    - Monitors subprocess; restarts on exit code 42 (restart signal)
-  - First-run wizard (PyWebView HTML quick-start for OpenRouter/local setup)
+  - First-run wizard (PyWebView HTML quick-start for multi-key and optional local setup)
    - **Graceful shutdown with orphan cleanup** (see Shutdown section below)
 
 2. **server.py** — self-editable inner server. Can be modified by the agent.
@@ -136,7 +136,7 @@ launcher.py main()
   ├── bootstrap_repo()          → Copy workspace to ~/Ouroboros/repo/ (first run)
   │                               OR sync core files (subsequent runs)
   ├── _run_first_run_wizard()   → Show multi-step setup wizard if no runnable config
-  │                               (setup path → model review → launch summary)
+  │                               (access entry → model review → launch summary)
   │                               Saves to ~/Ouroboros/data/settings.json
   ├── agent_lifecycle_loop()    → Background thread: start/monitor server.py
   └── webview.start()           → Open PyWebView window at http://127.0.0.1:8765
@@ -148,7 +148,7 @@ Shown when `settings.json` does not contain any supported remote provider key an
 `LOCAL_MODEL_SOURCE`.
 
 - Existing OpenRouter, OpenAI, OpenAI-compatible, Cloud.ru, or local-model-source settings skip the wizard automatically.
-- The wizard is multi-step and provider-aware: it starts with a reversible setup-path selector, then shows visible model defaults for review before save.
+- The wizard is multi-step and provider-aware: it starts with a single access step that accepts multiple remote keys plus optional local-model setup, then shows visible model defaults for review before save.
 - The wizard blocks progression if nothing runnable is configured.
 - When OpenRouter is absent and official OpenAI is the only configured remote runtime, untouched default lane values are auto-remapped to `openai::gpt-5.4` / `openai::gpt-5.4-mini` so first-run startup does not strand the app on OpenRouter-only defaults.
 - OpenAI-compatible and Cloud.ru remain explicit model-selection flows from the full Settings page because there is no single safe universal default model ID for those providers.

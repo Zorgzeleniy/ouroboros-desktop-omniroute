@@ -195,11 +195,12 @@ export function initChat({ ws, state, updateUnreadBadge }) {
 
     function createLiveCardRecord(groupId = '') {
         const normalizedGroupId = groupId || `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const root = document.createElement('details');
+        const root = document.createElement('div');
         root.className = 'chat-live-card';
         root.dataset.finished = '0';
+        root.dataset.expanded = '0';
         root.innerHTML = `
-            <summary>
+            <button type="button" class="chat-live-summary-button" data-live-summary-button>
                 <div class="chat-live-summary">
                     <div class="chat-live-summary-main">
                         <span class="chat-live-phase working" data-live-phase>Working</span>
@@ -214,12 +215,13 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                     </div>
                 </div>
                 <div class="chat-live-meta" data-live-meta></div>
-            </summary>
+            </button>
             <div class="chat-live-timeline" data-live-timeline></div>
         `;
         const record = {
             groupId: normalizedGroupId,
             root,
+            summaryButtonEl: root.querySelector('[data-live-summary-button]'),
             phaseEl: root.querySelector('[data-live-phase]'),
             titleEl: root.querySelector('[data-live-title]'),
             countEl: root.querySelector('[data-live-count]'),
@@ -231,7 +233,9 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             items: [],
             lastHumanHeadline: '',
         };
-        root.addEventListener('toggle', () => syncLiveCardToggle(record));
+        record.summaryButtonEl?.addEventListener('click', () => {
+            setLiveCardExpanded(record, record.root.dataset.expanded !== '1');
+        });
         liveCardRecords.set(normalizedGroupId, record);
         resetLiveCardRecord(record);
         return record;
@@ -255,9 +259,9 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         record.countEl.textContent = '0 notes';
         record.metaEl.innerHTML = '';
         record.timelineEl.innerHTML = '';
-        record.root.open = false;
+        record.root.style.minHeight = '';
         record.root.dataset.finished = '0';
-        syncLiveCardToggle(record);
+        setLiveCardExpanded(record, false);
     }
 
     function ensureLiveCardVisible(record) {
@@ -273,9 +277,28 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         return phase.charAt(0).toUpperCase() + phase.slice(1);
     }
 
+    function setLiveCardExpanded(record, expanded) {
+        if (!record?.root) return;
+        record.root.dataset.expanded = expanded ? '1' : '0';
+        syncLiveCardToggle(record);
+        if (record.root.isConnected) {
+            requestAnimationFrame(() => syncLiveCardLayout(record));
+        }
+    }
+
     function syncLiveCardToggle(record) {
         if (!record?.toggleEl) return;
-        record.toggleEl.textContent = record.root.open ? 'Hide details' : 'Show details';
+        record.toggleEl.textContent = record.root.dataset.expanded === '1' ? 'Hide details' : 'Show details';
+    }
+
+    function syncLiveCardLayout(record) {
+        if (!record?.root || !record.summaryButtonEl) return;
+        const summaryHeight = Math.ceil(record.summaryButtonEl.getBoundingClientRect().height || 0);
+        const expanded = record.root.dataset.expanded === '1';
+        const timelineHeight = expanded
+            ? Math.ceil(record.timelineEl?.scrollHeight || 0)
+            : 0;
+        record.root.style.minHeight = `${Math.max(summaryHeight + timelineHeight, 0)}px`;
     }
 
     function renderLiveCardTimeline(record) {
@@ -310,6 +333,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         activeLiveGroupId = nextGroupId;
         ensureLiveCardVisible(record);
         record.updates += 1;
+        const wasFinished = record.finished;
         record.finished = ['done', 'error', 'timeout'].includes(nextPhase);
         record.root.dataset.finished = record.finished ? '1' : '0';
         const headline = summary.headline || 'Working...';
@@ -360,11 +384,15 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         ].filter(Boolean).map((item) => `<span class="chat-live-meta-text">${escapeHtml(item)}</span>`).join('');
         renderLiveCardTimeline(record);
         insertMessageNode(record.root);
+        syncLiveCardLayout(record);
         hideTypingIndicatorOnly();
+        const justFinished = record.finished && !wasFinished;
         if (record.finished) {
-            record.root.open = false;
+            if (justFinished) {
+                setLiveCardExpanded(record, false);
+                scheduleHistorySync();
+            }
             syncLiveCardToggle(record);
-            scheduleHistorySync();
             setStatus(summary.phase === 'error' || summary.phase === 'timeout' ? 'error' : 'online', summary.phase === 'error' || summary.phase === 'timeout' ? 'Attention' : 'Online');
         } else {
             setStatus('thinking', 'Working...');
@@ -376,6 +404,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             ? liveCardRecords.get(groupId)
             : (activeLiveGroupId ? liveCardRecords.get(activeLiveGroupId) : null);
         if (!record) return;
+        const wasFinished = record.finished;
         record.finished = true;
         record.root.dataset.finished = '1';
         const activePhase = ['error', 'timeout'].includes(phase)
@@ -384,10 +413,12 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         record.phaseEl.dataset.phase = activePhase;
         record.phaseEl.textContent = formatLiveCardPhaseLabel(activePhase);
         record.phaseEl.className = `chat-live-phase ${activePhase}`;
-        record.root.open = false;
+        if (!wasFinished) {
+            setLiveCardExpanded(record, false);
+            scheduleHistorySync();
+        }
         syncLiveCardToggle(record);
         if (activeLiveGroupId === record.groupId) activeLiveGroupId = '';
-        scheduleHistorySync();
     }
 
     function appendTaskSummaryToLiveCard(msg) {
@@ -693,9 +724,15 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     typingEl.innerHTML = `<div class="typing-dots"><span></span><span></span><span></span></div>`;
     messagesDiv.appendChild(typingEl);
 
+    function hasActiveLiveCard() {
+        return Array.from(liveCardRecords.values()).some((record) => record?.root?.isConnected && !record.finished);
+    }
+
     function showTyping() {
-        typingEl.style.display = '';
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        if (!hasActiveLiveCard()) {
+            typingEl.style.display = '';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
         setStatus('thinking', 'Thinking...');
     }
 

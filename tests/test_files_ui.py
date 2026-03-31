@@ -42,8 +42,11 @@ def test_files_layout_uses_internal_scroll_contract():
 
     assert "flex: 1;" in css
     assert ".files-layout {" in css
+    assert 'grid-template-areas: "sidebar preview";' in css
     assert ".files-sidebar {" in css
     assert "min-height: 0;" in css
     assert "overflow: hidden;" in css
     assert ".files-list {" in css
     assert "overscroll-behavior: contain;" in css
+    assert "grid-template-rows: minmax(220px, 320px) minmax(0, 1fr);" in css
+    assert 'max-height: none;' in css

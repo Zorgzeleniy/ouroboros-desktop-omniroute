@@ -181,6 +181,7 @@ export function renderSettingsPage() {
                             label: 'Network Password (optional)',
                             placeholder: 'Leave blank to keep the network surface open',
                         })}</div>
+                        <div class="settings-inline-note">Adds a password wall only for non-localhost browser and API access. Leave it blank if you use Ouroboros only on this machine or inside a trusted private network.</div>
                     </div>
                 </section>
 
@@ -236,6 +237,7 @@ export function renderSettingsPage() {
                                     <option value="advisory">Advisory</option>
                                     <option value="blocking">Blocking</option>
                                 </select>
+                                <div class="settings-inline-note"><code>Advisory</code> still runs review but lets you decide. <code>Blocking</code> stops commits when critical review findings remain unresolved.</div>
                             </div>
                         </div>
                     </div>
@@ -244,6 +246,7 @@ export function renderSettingsPage() {
                 <section class="settings-panel" data-settings-panel="runtime">
                     <div class="form-section">
                         <h3>Local Model Runtime</h3>
+                        <div class="settings-section-copy">Only fill this in when you want Ouroboros to start and route to a GGUF model on this machine.</div>
                         <div class="form-grid two">
                             <div class="form-field">
                                 <label>Model Source</label>
@@ -283,6 +286,7 @@ export function renderSettingsPage() {
 
                     <div class="form-section">
                         <h3>Supervisor Runtime</h3>
+                        <div class="settings-section-copy">Workers control parallel task capacity. The timeout values are safety brakes for long or stuck tasks and tools.</div>
                         <div class="form-grid two">
                             <div class="form-field">
                                 <label>Max Workers</label>
@@ -344,6 +348,7 @@ export function renderSettingsPage() {
                                 <input id="s-gh-repo" placeholder="owner/repo-name">
                             </div>
                         </div>
+                        <div class="settings-inline-note">Only needed for in-app remote sync features. Safe to leave empty if you work locally.</div>
                     </div>
                 </section>
 
@@ -356,6 +361,7 @@ export function renderSettingsPage() {
                                 <input id="s-openai-base-url" placeholder="https://api.openai.com/v1 or compatible endpoint">
                             </div>
                         </div>
+                        <div class="settings-inline-note">Backward-compatibility escape hatch for older installs. For new custom providers, use the dedicated <code>OpenAI Compatible</code> card instead.</div>
                     </div>
 
                     <div class="form-section danger">

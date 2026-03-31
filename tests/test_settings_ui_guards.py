@@ -38,6 +38,12 @@ class TestSettingsUiGuards(unittest.TestCase):
         self.assertIn("These fields are cloud model IDs.", source)
         self.assertIn("through the GGUF server configured above.", source)
 
+    def test_strange_settings_have_inline_explainer_copy(self):
+        source = self._read_settings_sources()["settings_ui"]
+        self.assertIn("Adds a password wall only for non-localhost browser and API access.", source)
+        self.assertIn("still runs review but lets you decide", source)
+        self.assertIn("Backward-compatibility escape hatch for older installs.", source)
+
     def test_settings_tabs_are_single_row_scrollable(self):
         css = (REPO / "web/settings.css").read_text(encoding="utf-8")
         self.assertIn("flex-wrap: nowrap;", css)

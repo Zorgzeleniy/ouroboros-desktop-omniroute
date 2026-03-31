@@ -585,14 +585,14 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
     const STEP_ORDER = ["providers", "models", "summary"];
     const STEP_META = {
       providers: {
-        title: "Choose a setup path",
-        copy: "Pick the path you want now, then fill only the fields that matter for that path. You can switch paths at any time before launch.",
-        footer: "Choose one path, configure it fully, then review the visible defaults before launch."
+        title: "Add your access",
+        copy: "Every field on this screen is optional by itself. Fill at least one remote key or a local model source. You can paste several keys here; the next step adapts to what you entered.",
+        footer: "Enter only what you already have. OpenRouter, direct provider keys, and an optional local model can coexist."
       },
       models: {
         title: "Review model lanes",
-        copy: "Check the visible defaults for the selected path, then edit any lane you want before launch.",
-        footer: "Plain openai/... or anthropic/... stays OpenRouter-style. Direct providers use openai::... and anthropic::..."
+        copy: "Check the visible defaults derived from your current setup, then edit any lane you want before launch.",
+        footer: "Plain openai/... or anthropic/... stays OpenRouter-style. Direct lanes use openai::... and anthropic::...."
       },
       summary: {
         title: "Review before launch",
@@ -660,13 +660,19 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function detectProviderProfile() {
-      if (trim(state.openrouterKey).length >= 10) {
+      const hasOpenrouter = trim(state.openrouterKey).length >= 10;
+      const hasOpenai = trim(state.openaiKey).length >= 10;
+      const hasAnthropic = trim(state.anthropicKey).length >= 10;
+      if (hasOpenrouter) {
         return "openrouter";
       }
-      if (trim(state.openaiKey).length >= 10) {
+      if (hasOpenai && hasAnthropic) {
+        return "direct-multi";
+      }
+      if (hasOpenai) {
         return "openai";
       }
-      if (trim(state.anthropicKey).length >= 10) {
+      if (hasAnthropic) {
         return "anthropic";
       }
       if (hasLocalModel()) {
@@ -676,12 +682,13 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function activeProviderProfile() {
-      return trim(state.providerProfile) || detectProviderProfile();
+      return detectProviderProfile();
     }
 
     function profileLabel(profile) {
       if (profile === "openai") return "OpenAI";
       if (profile === "anthropic") return "Anthropic";
+      if (profile === "direct-multi") return "OpenAI + Anthropic";
       if (profile === "local") return "Local-first";
       return "OpenRouter";
     }
@@ -703,7 +710,7 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
       }
       const profile = activeProviderProfile();
       state.providerProfile = profile;
-      const defaults = MODEL_DEFAULTS[profile] || MODEL_DEFAULTS.openrouter;
+      const defaults = MODEL_DEFAULTS[profile] || MODEL_DEFAULTS.openai || MODEL_DEFAULTS.openrouter;
       state.mainModel = defaults.main;
       state.codeModel = defaults.code;
       state.lightModel = defaults.light;
@@ -711,41 +718,19 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
       state.modelsDirty = false;
     }
 
-    function setProviderProfile(profile) {
-      state.providerProfile = profile;
-      if (profile === "local") {
-        if (!state.localPreset) {
-          applyPresetSelection("qwen25-7b");
-        }
-        state.localRoutingMode = "all";
-      } else if (hasLocalModel() && state.localRoutingMode === "all") {
-        state.localRoutingMode = "fallback";
-      }
-      applyModelDefaults(true);
-      render();
-    }
-
     function validateProvidersStep() {
-      const profile = activeProviderProfile();
       const openrouterKey = trim(state.openrouterKey);
       const openaiKey = trim(state.openaiKey);
       const anthropicKey = trim(state.anthropicKey);
       const localSource = trim(state.localSource);
       const localFilename = trim(state.localFilename);
-      if (profile === "openrouter") {
-        if (!openrouterKey) return "Paste an OpenRouter API key to continue.";
-        if (openrouterKey.length < 10) return "OpenRouter API key looks too short.";
+      if (openrouterKey && openrouterKey.length < 10) return "OpenRouter API key looks too short.";
+      if (openaiKey && openaiKey.length < 10) return "OpenAI API key looks too short.";
+      if (anthropicKey && anthropicKey.length < 10) return "Anthropic API key looks too short.";
+      if (!openrouterKey && !openaiKey && !anthropicKey && !localSource) {
+        return "Enter at least one remote key or a local model source before continuing.";
       }
-      if (profile === "openai") {
-        if (!openaiKey) return "Paste an OpenAI API key to continue.";
-        if (openaiKey.length < 10) return "OpenAI API key looks too short.";
-      }
-      if (profile === "anthropic") {
-        if (!anthropicKey) return "Paste an Anthropic API key to continue.";
-        if (anthropicKey.length < 10) return "Anthropic API key looks too short.";
-      }
-      if (profile === "local") {
-        if (!localSource) return "Choose a local preset or enter a local model source to continue.";
+      if (localSource) {
         if (localSource.includes("/") && !isLocalFilesystemSource(localSource) && !localFilename) {
           return "Local HuggingFace sources need a GGUF filename.";
         }
@@ -809,23 +794,23 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
     function summaryRows() {
       const selectedProfile = activeProviderProfile();
       const rows = [
-        ["Setup path", profileLabel(selectedProfile)],
+        ["Detected setup", profileLabel(selectedProfile)],
         ["Main", trim(state.mainModel)],
         ["Code", trim(state.codeModel)],
         ["Light", trim(state.lightModel)],
         ["Fallback", trim(state.fallbackModel)],
         ["Budget", `$${Number(state.budget || 0).toFixed(2)}`],
       ];
-      if (selectedProfile === "openrouter") {
-        rows.splice(1, 0, ["OpenRouter", trim(state.openrouterKey) ? "configured" : "missing"]);
+      if (trim(state.openrouterKey)) {
+        rows.splice(1, 0, ["OpenRouter", "configured"]);
       }
-      if (selectedProfile === "openai") {
-        rows.splice(1, 0, ["OpenAI", trim(state.openaiKey) ? "configured" : "missing"]);
+      if (trim(state.openaiKey)) {
+        rows.splice(1, 0, ["OpenAI", "configured"]);
       }
-      if (selectedProfile === "anthropic") {
-        rows.splice(1, 0, ["Anthropic", trim(state.anthropicKey) ? "configured" : "missing"]);
+      if (trim(state.anthropicKey)) {
+        rows.splice(1, 0, ["Anthropic", "configured"]);
       }
-      if (selectedProfile === "local") {
+      if (hasLocalModel()) {
         const localRoute = hasLocalModel()
         ? (state.localRoutingMode === "all" ? "all lanes local" : state.localRoutingMode === "fallback" ? "fallback lane local" : "cloud lanes only")
         : "disabled";
@@ -850,7 +835,8 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
           <span>${escapeHtml(value)}</span>
         </div>
       `).join("");
-      const localAdvanced = selectedProfile === "local" ? `
+      const showLocalAdvanced = hasLocalModel();
+      const localAdvanced = showLocalAdvanced ? `
         <div class="grid two">
           <div class="field">
             <div class="field-label-row"><label for="local-context">Context Length</label></div>
@@ -877,98 +863,44 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
             <h2 class="step-title">${escapeHtml(meta.title)}</h2>
             <p class="step-copy">${escapeHtml(meta.copy)}</p>
           </div>
-          <div class="pill-row">
-            <button class="preset-pill ${selectedProfile === "openrouter" ? "active" : ""}" data-profile="openrouter" type="button">OpenRouter</button>
-            <button class="preset-pill ${selectedProfile === "openai" ? "active" : ""}" data-profile="openai" type="button">OpenAI</button>
-            <button class="preset-pill ${selectedProfile === "anthropic" ? "active" : ""}" data-profile="anthropic" type="button">Anthropic</button>
-            <button class="preset-pill ${selectedProfile === "local" ? "active" : ""}" data-profile="local" type="button">Local-first</button>
-          </div>
         </div>
         <div class="panel-card">
-          <h3>${escapeHtml(profileLabel(selectedProfile))}</h3>
-          <p>${selectedProfile === "openrouter"
-            ? "Best path when you want one router for Anthropic, OpenAI, Google, and other provider families."
-            : selectedProfile === "openai"
-              ? "Official OpenAI runtime with explicit openai:: lane defaults and no local-model fields in the way."
-              : selectedProfile === "anthropic"
-                ? "Official Anthropic runtime with explicit anthropic:: lane defaults and no unrelated provider copy."
-                : "Local-first setup with preset selection, routing mode, and llama.cpp runtime details on the same step."}</p>
+          <h3>Keys first, routing second</h3>
+          <p>${trim(state.openrouterKey)
+            ? "OpenRouter is present, so the next step keeps router-style defaults while still saving any extra direct keys you pasted here."
+            : selectedProfile === "direct-multi"
+              ? "OpenAI and Anthropic are both present, so the next step keeps direct-provider lanes visible and lets you decide which lane uses which provider."
+              : selectedProfile === "openai"
+                ? "OpenAI is present, so the next step prefills direct openai:: lanes."
+                : selectedProfile === "anthropic"
+                  ? "Anthropic is present, so the next step prefills direct anthropic:: lanes."
+                  : "No remote key is present yet, so local-only setup remains available below."}</p>
         </div>
         <div class="field-grid">
-          ${selectedProfile === "openrouter" ? `
-            <div class="field" style="grid-column: 1 / -1;">
-              <div class="field-label-row">
-                <label for="openrouter-key">OpenRouter API Key</label>
-                <button class="field-clear" data-clear="openrouter-key" type="button">Clear</button>
-              </div>
-              <input id="openrouter-key" type="password" placeholder="sk-or-v1-..." value="${escapeHtml(state.openrouterKey)}">
-              <div class="field-note">Recommended when you want Anthropic, Google, OpenAI, and others through one router.</div>
+          <div class="field">
+            <div class="field-label-row">
+              <label for="openrouter-key">OpenRouter API Key</label>
+              <button class="field-clear" data-clear="openrouter-key" type="button">Clear</button>
             </div>
-          ` : ""}
-          ${selectedProfile === "openai" ? `
-            <div class="field" style="grid-column: 1 / -1;">
-              <div class="field-label-row">
-                <label for="openai-key">OpenAI API Key</label>
-                <button class="field-clear" data-clear="openai-key" type="button">Clear</button>
-              </div>
-              <input id="openai-key" type="password" placeholder="sk-..." value="${escapeHtml(state.openaiKey)}">
-              <div class="field-note">Official OpenAI runtime. The next step visibly prefills <code>openai::...</code> lanes.</div>
+            <input id="openrouter-key" type="password" placeholder="sk-or-v1-..." value="${escapeHtml(state.openrouterKey)}">
+            <div class="field-note">Optional. Best when you want one router for Anthropic, OpenAI, Google, and more.</div>
+          </div>
+          <div class="field">
+            <div class="field-label-row">
+              <label for="openai-key">OpenAI API Key</label>
+              <button class="field-clear" data-clear="openai-key" type="button">Clear</button>
             </div>
-          ` : ""}
-          ${selectedProfile === "anthropic" ? `
-            <div class="field" style="grid-column: 1 / -1;">
-              <div class="field-label-row">
-                <label for="anthropic-key">Anthropic API Key</label>
-                <button class="field-clear" data-clear="anthropic-key" type="button">Clear</button>
-              </div>
-              <input id="anthropic-key" type="password" placeholder="sk-ant-..." value="${escapeHtml(state.anthropicKey)}">
-              <div class="field-note">Official Anthropic runtime and Claude tooling support. The next step visibly prefills <code>anthropic::...</code> lanes.</div>
+            <input id="openai-key" type="password" placeholder="sk-..." value="${escapeHtml(state.openaiKey)}">
+            <div class="field-note">Optional. If this is the only remote key, the next step prefills direct <code>openai::...</code> lanes.</div>
+          </div>
+          <div class="field">
+            <div class="field-label-row">
+              <label for="anthropic-key">Anthropic API Key</label>
+              <button class="field-clear" data-clear="anthropic-key" type="button">Clear</button>
             </div>
-          ` : ""}
-          ${selectedProfile === "local" ? `
-            <div class="field">
-              <div class="field-label-row">
-                <label for="local-preset">Local Model Preset</label>
-                <button class="field-clear" data-clear="local-preset" type="button">Clear</button>
-              </div>
-              <select id="local-preset">
-                <option value="" ${state.localPreset === "" ? "selected" : ""}>None</option>
-                <option value="qwen25-7b" ${state.localPreset === "qwen25-7b" ? "selected" : ""}>Qwen2.5-7B Instruct Q3_K_M</option>
-                <option value="qwen3-14b" ${state.localPreset === "qwen3-14b" ? "selected" : ""}>Qwen3-14B Instruct Q4_K_M</option>
-                <option value="qwen3-32b" ${state.localPreset === "qwen3-32b" ? "selected" : ""}>Qwen3-32B Instruct Q4_K_M</option>
-                <option value="custom" ${state.localPreset === "custom" ? "selected" : ""}>Custom source</option>
-              </select>
-              <div class="field-note">Choose a preset or switch to custom source details below.</div>
-            </div>
-            <div class="field">
-              <div class="field-label-row"><label>Local routing</label></div>
-              <div class="step-chip-row">
-                <button class="mode-pill ${state.localRoutingMode === "cloud" ? "active" : ""}" data-local-mode="cloud" type="button">Cloud only</button>
-                <button class="mode-pill ${state.localRoutingMode === "fallback" ? "active" : ""}" data-local-mode="fallback" type="button">Fallback local</button>
-                <button class="mode-pill ${state.localRoutingMode === "all" ? "active" : ""}" data-local-mode="all" type="button">All lanes local</button>
-              </div>
-              <div class="field-note">Control whether the local model powers only fallback or every lane.</div>
-            </div>
-            <div class="field" style="grid-column: 1 / -1;">
-              <div class="field-label-row">
-                <label for="local-source">Local Source</label>
-                <button class="field-clear" data-clear="local-source" type="button">Clear</button>
-              </div>
-              <input id="local-source" placeholder="Qwen/Qwen2.5-7B-Instruct-GGUF or /absolute/path/model.gguf" value="${escapeHtml(state.localSource)}">
-            </div>
-            <div class="field" style="grid-column: 1 / -1;">
-              <div class="field-label-row">
-                <label for="local-filename">GGUF Filename</label>
-                <button class="field-clear" data-clear="local-filename" type="button">Clear</button>
-              </div>
-              <input id="local-filename" placeholder="qwen2.5-7b-instruct-q3_k_m.gguf" value="${escapeHtml(state.localFilename)}">
-              <div class="field-note">Needed for HuggingFace repo IDs. Leave empty only when the source is an absolute local file path.</div>
-            </div>
-            <div class="field" style="grid-column: 1 / -1;">
-              <h3 style="margin: 0 0 8px; font-size: 14px;">Local runtime details</h3>
-              ${localAdvanced}
-            </div>
-          ` : ""}
+            <input id="anthropic-key" type="password" placeholder="sk-ant-..." value="${escapeHtml(state.anthropicKey)}">
+            <div class="field-note">Optional. Saved for direct <code>anthropic::...</code> lanes and Claude tooling.</div>
+          </div>
           <div class="field">
             <div class="field-label-row">
               <label for="budget">Budget (USD)</label>
@@ -976,6 +908,51 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
             <input id="budget" type="number" min="1" step="1" value="${escapeHtml(state.budget)}">
             <div class="field-note">The global task budget can still be changed later in Settings.</div>
           </div>
+          <div class="field">
+            <div class="field-label-row">
+              <label for="local-preset">Local Model Preset</label>
+              <button class="field-clear" data-clear="local-preset" type="button">Clear</button>
+            </div>
+            <select id="local-preset">
+              <option value="" ${state.localPreset === "" ? "selected" : ""}>None</option>
+              <option value="qwen25-7b" ${state.localPreset === "qwen25-7b" ? "selected" : ""}>Qwen2.5-7B Instruct Q3_K_M</option>
+              <option value="qwen3-14b" ${state.localPreset === "qwen3-14b" ? "selected" : ""}>Qwen3-14B Instruct Q4_K_M</option>
+              <option value="qwen3-32b" ${state.localPreset === "qwen3-32b" ? "selected" : ""}>Qwen3-32B Instruct Q4_K_M</option>
+              <option value="custom" ${state.localPreset === "custom" ? "selected" : ""}>Custom source</option>
+            </select>
+            <div class="field-note">Optional. Choose a preset if you want a local fallback or a fully local setup.</div>
+          </div>
+          <div class="field">
+            <div class="field-label-row"><label>Local routing</label></div>
+            <div class="step-chip-row">
+              <button class="mode-pill ${state.localRoutingMode === "cloud" ? "active" : ""}" data-local-mode="cloud" type="button">Cloud only</button>
+              <button class="mode-pill ${state.localRoutingMode === "fallback" ? "active" : ""}" data-local-mode="fallback" type="button">Fallback local</button>
+              <button class="mode-pill ${state.localRoutingMode === "all" ? "active" : ""}" data-local-mode="all" type="button">All lanes local</button>
+            </div>
+            <div class="field-note">Ignored unless a local model source is configured below.</div>
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <div class="field-label-row">
+              <label for="local-source">Local Source</label>
+              <button class="field-clear" data-clear="local-source" type="button">Clear</button>
+            </div>
+            <input id="local-source" placeholder="Qwen/Qwen2.5-7B-Instruct-GGUF or /absolute/path/model.gguf" value="${escapeHtml(state.localSource)}">
+            <div class="field-note">Optional. Leave blank unless you want the embedded local runtime.</div>
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <div class="field-label-row">
+              <label for="local-filename">GGUF Filename</label>
+              <button class="field-clear" data-clear="local-filename" type="button">Clear</button>
+            </div>
+            <input id="local-filename" placeholder="qwen2.5-7b-instruct-q3_k_m.gguf" value="${escapeHtml(state.localFilename)}">
+            <div class="field-note">Needed only for HuggingFace repo IDs. Leave empty when the source is an absolute local file path.</div>
+          </div>
+          ${showLocalAdvanced ? `
+            <div class="field" style="grid-column: 1 / -1;">
+              <h3 style="margin: 0 0 8px; font-size: 14px;">Local runtime details</h3>
+              ${localAdvanced}
+            </div>
+          ` : ""}
         </div>
       `;
       const modelsStep = `
@@ -987,7 +964,7 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
         <div class="panel-card">
           <h3>Current profile</h3>
-          <p>${selectedProfile === "openai" ? "OpenAI-only mode selected. These defaults are explicit and official." : selectedProfile === "anthropic" ? "Anthropic-only mode selected. These defaults are explicit and official." : selectedProfile === "local" ? "Local-first mode selected. The local routing choice is already configured, but cloud lane values stay visible here for review." : "OpenRouter-style routing remains active. Unprefixed provider IDs like openai/gpt-5.4 or anthropic/claude-sonnet-4.6 continue to route through OpenRouter."}</p>
+          <p>${selectedProfile === "openai" ? "OpenAI-only setup detected. These defaults are explicit and official." : selectedProfile === "anthropic" ? "Anthropic-only setup detected. These defaults are explicit and official." : selectedProfile === "direct-multi" ? "OpenAI and Anthropic are both configured. These defaults start from the direct OpenAI lane values; switch any lane to anthropic::... if you want a different split." : selectedProfile === "local" ? "Local-only setup detected. Review the lane values and local routing before launch." : "OpenRouter-style routing remains active. Unprefixed provider IDs like openai/gpt-5.4 or anthropic/claude-sonnet-4.6 continue to route through OpenRouter."}</p>
         </div>
         <div class="grid two">
           <div class="field">
@@ -1058,7 +1035,7 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="wizard-header">
             <div>
               <h1 class="wizard-title">Ouroboros</h1>
-              <p class="wizard-subtitle">Desktop-first onboarding with a simpler, reversible setup path selector and visible model defaults before launch.</p>
+              <p class="wizard-subtitle">Desktop-first onboarding with all access options on the first step and visible model defaults before launch.</p>
             </div>
             <div class="wizard-badge">Step ${idx + 1} of ${STEP_ORDER.length}</div>
           </div>
@@ -1122,9 +1099,6 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
       if (localGpuLayers) localGpuLayers.addEventListener("input", () => { state.localGpuLayers = localGpuLayers.value; state.error = ""; syncCurrentStepActionState(); });
       if (localChatFormat) localChatFormat.addEventListener("input", () => { state.localChatFormat = localChatFormat.value; state.error = ""; syncCurrentStepActionState(); });
       if (budget) budget.addEventListener("input", () => { state.budget = budget.value; state.error = ""; syncCurrentStepActionState(); });
-      root.querySelectorAll("[data-profile]").forEach((button) => {
-        button.addEventListener("click", () => setProviderProfile(button.getAttribute("data-profile")));
-      });
       root.querySelectorAll("[data-local-mode]").forEach((button) => {
         button.addEventListener("click", () => {
           state.localRoutingMode = button.getAttribute("data-local-mode");
@@ -1167,16 +1141,16 @@ _WIZARD_HTML_TEMPLATE = """<!DOCTYPE html>
       state.error = "";
       render();
       const payload = {
-        OPENROUTER_API_KEY: selectedProfile === "openrouter" ? trim(state.openrouterKey) : "",
-        OPENAI_API_KEY: selectedProfile === "openai" ? trim(state.openaiKey) : "",
-        ANTHROPIC_API_KEY: selectedProfile === "anthropic" ? trim(state.anthropicKey) : "",
+        OPENROUTER_API_KEY: trim(state.openrouterKey),
+        OPENAI_API_KEY: trim(state.openaiKey),
+        ANTHROPIC_API_KEY: trim(state.anthropicKey),
         TOTAL_BUDGET: Number(state.budget || 0),
-        LOCAL_MODEL_SOURCE: selectedProfile === "local" ? trim(state.localSource) : "",
-        LOCAL_MODEL_FILENAME: selectedProfile === "local" ? trim(state.localFilename) : "",
-        LOCAL_MODEL_CONTEXT_LENGTH: selectedProfile === "local" ? Number(state.localContextLength || 0) : 16384,
-        LOCAL_MODEL_N_GPU_LAYERS: selectedProfile === "local" ? Number(state.localGpuLayers || 0) : -1,
-        LOCAL_MODEL_CHAT_FORMAT: selectedProfile === "local" ? trim(state.localChatFormat) : "",
-        LOCAL_ROUTING_MODE: selectedProfile === "local" ? state.localRoutingMode : "cloud",
+        LOCAL_MODEL_SOURCE: trim(state.localSource),
+        LOCAL_MODEL_FILENAME: trim(state.localFilename),
+        LOCAL_MODEL_CONTEXT_LENGTH: Number(state.localContextLength || 0),
+        LOCAL_MODEL_N_GPU_LAYERS: Number(state.localGpuLayers || 0),
+        LOCAL_MODEL_CHAT_FORMAT: trim(state.localChatFormat),
+        LOCAL_ROUTING_MODE: trim(state.localSource) ? state.localRoutingMode : "cloud",
         OUROBOROS_MODEL: trim(state.mainModel),
         OUROBOROS_MODEL_CODE: trim(state.codeModel),
         OUROBOROS_MODEL_LIGHT: trim(state.lightModel),

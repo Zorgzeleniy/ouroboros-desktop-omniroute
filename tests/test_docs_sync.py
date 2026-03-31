@@ -14,8 +14,8 @@ def test_readme_mentions_multistep_wizard_and_live_task_ui():
     readme = _read("README.md")
 
     assert "wizard is now multi-step" in readme
-    assert "choose a setup path first" in readme
-    assert "review visible model lanes second" in readme
+    assert "enter any combination of OpenRouter, official OpenAI, Anthropic, and optional local-model access on the first step" in readme
+    assert "review the visible model lanes second" in readme
     assert "Focused Task UX" in readme
     assert "live task card" in readme
 

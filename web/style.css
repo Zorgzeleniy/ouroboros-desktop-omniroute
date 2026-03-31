@@ -170,6 +170,7 @@ body {
     position: relative;
     display: grid;
     grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+    grid-template-areas: "sidebar preview";
     flex: 1;
     height: auto;
     min-height: 0;
@@ -177,6 +178,7 @@ body {
 }
 
 .files-sidebar {
+    grid-area: sidebar;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -304,6 +306,7 @@ body {
 }
 
 .files-preview {
+    grid-area: preview;
     min-width: 0;
     min-height: 0;
     display: flex;
@@ -636,12 +639,16 @@ body {
 @media (max-width: 980px) {
     .files-layout {
         grid-template-columns: 1fr;
+        grid-template-rows: minmax(220px, 320px) minmax(0, 1fr);
+        grid-template-areas:
+            "sidebar"
+            "preview";
     }
 
     .files-sidebar {
         border-right: none;
         border-bottom: 1px solid var(--divider);
-        max-height: 42%;
+        max-height: none;
     }
 }
 
@@ -773,22 +780,22 @@ body {
     display: none;
 }
 
-.chat-live-card summary {
-    list-style: none;
+.chat-live-summary-button {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
     cursor: pointer;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     user-select: none;
+    text-align: left;
 }
 
-.chat-live-card summary:hover {
+.chat-live-summary-button:hover {
     background: rgba(255,255,255,0.02);
-}
-
-.chat-live-card summary::-webkit-details-marker {
-    display: none;
 }
 
 .chat-live-summary {
@@ -886,8 +893,8 @@ body {
 }
 
 .chat-live-title {
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 400;
     color: var(--text-primary);
     flex: 1;
     min-width: 0;
@@ -912,7 +919,7 @@ body {
     transition: transform 0.18s ease;
 }
 
-.chat-live-card[open] .chat-live-chevron {
+.chat-live-card[data-expanded="1"] .chat-live-chevron {
     transform: rotate(180deg);
 }
 
@@ -931,12 +938,13 @@ body {
 
 .chat-live-timeline {
     padding: 0 14px 14px;
-    display: flex;
+    display: none;
     flex-direction: column;
     gap: 8px;
 }
 
-.chat-live-card[open] .chat-live-timeline {
+.chat-live-card[data-expanded="1"] .chat-live-timeline {
+    display: flex;
     border-top: 1px solid rgba(255,255,255,0.05);
 }
 
@@ -962,8 +970,8 @@ body {
 
 .chat-live-line-title {
     color: var(--text-primary);
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 400;
     line-height: 1.5;
     white-space: pre-wrap;
 }
@@ -983,7 +991,7 @@ body {
     color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
 }
 
