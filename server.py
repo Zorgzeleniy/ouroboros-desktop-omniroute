@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route, Mount, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
@@ -170,10 +170,12 @@ from ouroboros.config import (
 from ouroboros.server_runtime import (
     apply_runtime_provider_defaults,
     has_local_routing,
+    has_startup_ready_provider,
     has_supervisor_provider,
     setup_remote_if_configured,
     ws_heartbeat_loop,
 )
+from ouroboros.onboarding_wizard import build_onboarding_html
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +683,15 @@ async def api_settings_get(request: Request) -> JSONResponse:
     return JSONResponse(safe)
 
 
+async def api_onboarding(request: Request) -> Response:
+    settings, provider_defaults_changed, _provider_default_keys = apply_runtime_provider_defaults(load_settings())
+    if provider_defaults_changed:
+        save_settings(settings)
+    if has_startup_ready_provider(settings):
+        return Response(status_code=204)
+    return HTMLResponse(build_onboarding_html(settings, host_mode="web"))
+
+
 async def api_settings_post(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -837,6 +848,7 @@ routes = [
     Route("/api/health", endpoint=api_health),
     Route("/api/state", endpoint=api_state),
     *file_browser_routes(),
+    Route("/api/onboarding", endpoint=api_onboarding),
     Route("/api/settings", endpoint=api_settings_get, methods=["GET"]),
     Route("/api/settings", endpoint=api_settings_post, methods=["POST"]),
     Route("/api/model-catalog", endpoint=api_model_catalog),

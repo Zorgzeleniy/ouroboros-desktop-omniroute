@@ -19,6 +19,7 @@ import { initSettings } from './modules/settings.js';
 import { initCosts } from './modules/costs.js';
 import { initVersions } from './modules/versions.js';
 import { initAbout } from './modules/about.js';
+import { initOnboardingOverlay } from './modules/onboarding_overlay.js';
 
 // ---------------------------------------------------------------------------
 // Shared State
@@ -100,6 +101,7 @@ initSettings(ctx);
 initCosts(ctx);
 initVersions(ctx);
 initAbout(ctx);
+initOnboardingOverlay();
 
 // ---------------------------------------------------------------------------
 // Startup — connect WS only after all modules have registered their listeners

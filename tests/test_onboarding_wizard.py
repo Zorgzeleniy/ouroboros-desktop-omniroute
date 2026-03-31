@@ -1,4 +1,9 @@
+import pathlib
+
 from ouroboros.onboarding_wizard import build_onboarding_html, prepare_onboarding_settings
+
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _base_payload() -> dict:
@@ -7,6 +12,8 @@ def _base_payload() -> dict:
         "OPENAI_API_KEY": "",
         "ANTHROPIC_API_KEY": "",
         "TOTAL_BUDGET": 10,
+        "OUROBOROS_PER_TASK_COST_USD": 20,
+        "OUROBOROS_REVIEW_ENFORCEMENT": "advisory",
         "LOCAL_MODEL_SOURCE": "",
         "LOCAL_MODEL_FILENAME": "",
         "LOCAL_MODEL_CONTEXT_LENGTH": 16384,
@@ -37,6 +44,8 @@ def test_prepare_onboarding_settings_accepts_openai_only_setup():
     assert prepared["OPENAI_API_KEY"] == "sk-openai-1234567890"
     assert prepared["OUROBOROS_MODEL"] == "openai::gpt-5.4"
     assert prepared["TOTAL_BUDGET"] == 10.0
+    assert prepared["OUROBOROS_PER_TASK_COST_USD"] == 20.0
+    assert prepared["OUROBOROS_REVIEW_ENFORCEMENT"] == "advisory"
 
 
 def test_prepare_onboarding_settings_accepts_anthropic_only_setup():
@@ -72,26 +81,42 @@ def test_prepare_onboarding_settings_sets_all_local_routes():
 def test_build_onboarding_html_contains_multistep_markers():
     html = build_onboarding_html({})
 
-    assert "STEP_ORDER = [\"providers\", \"models\", \"summary\"]" in html
+    assert "bootstrap.stepOrder || ['providers', 'models', 'review_mode', 'budget', 'summary']" in html
     assert "Add your access" in html
-    assert "Review model lanes" in html
-    assert "You can paste several keys here" in html
+    assert "Choose models" in html
+    assert "Choose review mode" in html
+    assert "Set your budget" in html
+    assert "Local model settings" in html
     assert "openai::gpt-5.4" in html
     assert "openai::gpt-5.4-mini" in html
     assert "anthropic::claude-sonnet-4-6" in html
-    assert "Skip optional step" not in html
+
+
+def test_build_onboarding_html_accepts_web_host_mode():
+    html = build_onboarding_html({}, host_mode="web")
+
+    assert '"hostMode": "web"' in html
+    assert '"supportsLocalRuntimeControls": true' in html
 
 
 def test_build_onboarding_html_adapts_to_multi_provider_access():
     html = build_onboarding_html({})
 
+    assert "function detectProviderProfile()" in html
     assert "function activeProviderProfile()" in html
     assert "function profileLabel(profile)" in html
     assert "function nextButtonShouldBeDisabled()" in html
     assert "function syncCurrentStepActionState()" in html
-    assert 'if (hasOpenai && hasAnthropic) {' in html
-    assert 'return "direct-multi";' in html
-    assert 'OPENROUTER_API_KEY: trim(state.openrouterKey)' in html
-    assert 'OPENAI_API_KEY: trim(state.openaiKey)' in html
-    assert 'ANTHROPIC_API_KEY: trim(state.anthropicKey)' in html
-    assert 'LOCAL_ROUTING_MODE: trim(state.localSource) ? state.localRoutingMode : "cloud"' in html
+    assert "return 'direct-multi';" in html
+    assert "OPENROUTER_API_KEY: trim(state.openrouterKey)" in html
+    assert "OPENAI_API_KEY: trim(state.openaiKey)" in html
+    assert "ANTHROPIC_API_KEY: trim(state.anthropicKey)" in html
+    assert "LOCAL_ROUTING_MODE: trim(state.localSource) ? (trim(state.localRoutingMode) || 'cloud') : 'cloud'" in html
+
+
+def test_web_style_contains_onboarding_overlay_shell():
+    style = (REPO / "web" / "style.css").read_text(encoding="utf-8")
+
+    assert ".onboarding-overlay {" in style
+    assert ".onboarding-frame {" in style
+    assert ".onboarding-overlay-backdrop {" in style

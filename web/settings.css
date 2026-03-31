@@ -195,6 +195,11 @@
     transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
+.settings-shell .form-field input::placeholder,
+.secret-input::placeholder {
+    color: rgba(255, 255, 255, 0.24);
+}
+
 .settings-shell .form-field input:focus,
 .settings-shell .form-field select:focus {
     border-color: rgba(232, 93, 111, 0.4);
@@ -282,13 +287,13 @@
     border-color: rgba(232, 93, 111, 0.35);
 }
 
-.settings-lane-grid {
+.settings-model-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
 }
 
-.settings-lane-card {
+.settings-model-card {
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -299,19 +304,19 @@
     min-width: 0;
 }
 
-.settings-lane-header {
+.settings-model-header {
     display: flex;
     justify-content: space-between;
     gap: 12px;
     align-items: flex-start;
 }
 
-.settings-lane-header h4 {
+.settings-model-header h4 {
     font-size: 15px;
     margin: 0 0 4px;
 }
 
-.settings-lane-header p {
+.settings-model-header p {
     margin: 0;
     color: var(--text-secondary);
     font-size: 12px;
@@ -450,7 +455,7 @@
         padding: 0 14px 14px;
     }
 
-    .settings-lane-grid,
+    .settings-model-grid,
     .settings-effort-grid {
         grid-template-columns: 1fr;
     }

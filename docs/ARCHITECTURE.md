@@ -48,7 +48,7 @@ server.py (Starlette+uvicorn) ← HTTP + WebSocket on localhost:8765
       ├── local_model_api.py   ← Local model HTTP endpoints
       ├── local_model_autostart.py ← Local model startup helper
       ├── review.py            ← Code collection, complexity metrics, full-codebase review
-      ├── onboarding_wizard.py ← Multi-step first-run wizard HTML + validation
+      ├── onboarding_wizard.py ← Shared desktop/web onboarding bootstrap + validation
       ├── owner_inject.py      ← Per-task user message mailbox (compat module name)
       ├── reflection.py        ← Execution reflection and pattern capture
       ├── server_history_api.py ← Chat history + cost breakdown endpoints
@@ -69,7 +69,7 @@ server.py (Starlette+uvicorn) ← HTTP + WebSocket on localhost:8765
    - Starts `server.py` as a subprocess via embedded Python
    - Shows PyWebView window pointed at `http://127.0.0.1:8765`
    - Monitors subprocess; restarts on exit code 42 (restart signal)
-  - First-run wizard (PyWebView HTML quick-start for multi-key and optional local setup)
+  - First-run wizard (shared desktop/web onboarding for multi-key and optional local setup)
    - **Graceful shutdown with orphan cleanup** (see Shutdown section below)
 
 2. **server.py** — self-editable inner server. Can be modified by the agent.
@@ -135,8 +135,8 @@ launcher.py main()
   ├── check_git()               → Show "install git" wizard if missing
   ├── bootstrap_repo()          → Copy workspace to ~/Ouroboros/repo/ (first run)
   │                               OR sync core files (subsequent runs)
-  ├── _run_first_run_wizard()   → Show multi-step setup wizard if no runnable config
-  │                               (access entry → model review → launch summary)
+  ├── _run_first_run_wizard()   → Show shared setup wizard if no runnable config
+  │                               (access entry → models → review mode → budget → summary)
   │                               Saves to ~/Ouroboros/data/settings.json
   ├── agent_lifecycle_loop()    → Background thread: start/monitor server.py
   └── webview.start()           → Open PyWebView window at http://127.0.0.1:8765
@@ -148,9 +148,10 @@ Shown when `settings.json` does not contain any supported remote provider key an
 `LOCAL_MODEL_SOURCE`.
 
 - Existing OpenRouter, OpenAI, OpenAI-compatible, Cloud.ru, or local-model-source settings skip the wizard automatically.
-- The wizard is multi-step and provider-aware: it starts with a single access step that accepts multiple remote keys plus optional local-model setup, then shows visible model defaults for review before save.
+- The wizard is shared between desktop and web: one HTML/CSS/JS onboarding flow is rendered directly in pywebview for desktop and injected into a blocking web overlay for Docker/browser runs.
+- The wizard is multi-step and provider-aware: it starts with a single access step that accepts multiple remote keys plus optional local-model setup, then shows visible model defaults, a dedicated review-mode step, a dedicated budget step, and the final summary before save.
 - The wizard blocks progression if nothing runnable is configured.
-- When OpenRouter is absent and official OpenAI is the only configured remote runtime, untouched default lane values are auto-remapped to `openai::gpt-5.4` / `openai::gpt-5.4-mini` so first-run startup does not strand the app on OpenRouter-only defaults.
+- When OpenRouter is absent and official OpenAI is the only configured remote runtime, untouched default model values are auto-remapped to `openai::gpt-5.4` / `openai::gpt-5.4-mini` so first-run startup does not strand the app on OpenRouter-only defaults.
 - OpenAI-compatible and Cloud.ru remain explicit model-selection flows from the full Settings page because there is no single safe universal default model ID for those providers.
 - Closing the wizard without saving is non-fatal: the main app still launches and the user can finish configuration in Settings.
 
@@ -236,13 +237,13 @@ Navigation is a left sidebar with 9 pages.
 
 ### 3.4 Settings
 
-- **Tabbed layout**: `Providers`, `Models`, `Runtime`, `Integrations`, `Advanced`.
+- **Tabbed layout**: `Providers`, `Models`, `Integrations`, `Advanced`.
 - **Provider cards**: OpenRouter, OpenAI, OpenAI-compatible, Cloud.ru, Anthropic, plus optional Network Password. Cards are collapsible and use masked-secret inputs with show/hide toggles.
 - **API Keys**: OpenRouter, OpenAI, OpenAI-compatible, Cloud.ru, Anthropic, Telegram Bot Token, GitHub Token, and Network Password.
   Keys are displayed as masked values (e.g., `sk-or-v1...`), can be explicitly cleared, and are only overwritten on save if the user enters a new value (not containing `...`).
 - **Models**: Main, Code, Light, Fallback.
 - **Model catalog**: optional `Refresh Model Catalog` action calls `/api/model-catalog`. Failures are non-fatal and surfaced as inline warnings.
-- **Model pickers**: searchable provider-aware pickers replace legacy raw dropdowns for remote model lanes.
+- **Model pickers**: searchable provider-aware pickers replace legacy raw dropdowns for remote models.
 - **Provider prefixes**:
   - OpenRouter model values stay unprefixed (`anthropic/claude-opus-4.6`).
   - OpenAI model values use `openai::...`.
@@ -257,7 +258,7 @@ Navigation is a left sidebar with 9 pages.
 - **OpenAI-only review fallback**: if official OpenAI is the only configured remote runtime and the review list is invalid/underspecified, review falls back to the main model repeated three times.
 - **Review Enforcement**: `Advisory` or `Blocking` for pre-commit review behavior.
   Backed by `OUROBOROS_REVIEW_ENFORCEMENT`. Review always runs in both modes.
-- **Runtime**: Max Workers, Budget ($), Tool Timeout, Soft/Hard Timeout.
+- **Advanced**: local model runtime, max workers, total budget, per-task soft threshold, tool timeout, soft/hard timeout, web search model, review enforcement, legacy compatibility, and reset controls.
 - **Local Model Runtime**: source, GGUF filename, port, GPU layers, context length, chat format, start/stop/test buttons, live local-model status.
 - **Telegram**: Bot Token, primary chat id, legacy allowed chat ids. If no primary chat id is pinned, the bridge binds to the first active Telegram chat and keeps replies attached there.
 - **GitHub**: Token + Repo (for remote sync).
@@ -418,7 +419,7 @@ Each iteration (0.5s sleep):
 ### Tool execution (loop.py)
 
 - Pricing/cost estimation logic extracted to `pricing.py` (model pricing table, cost estimation, API key inference, usage event emission)
-- **Per-task cost cap**: Each task has a cost ceiling (default $5, env `OUROBOROS_PER_TASK_COST_USD`). When a task exceeds this, the LLM is asked to wrap up immediately. This prevents runaway evolution tasks that previously hit $10+.
+- **Per-task soft threshold**: Each task has a soft threshold (default $20, env `OUROBOROS_PER_TASK_COST_USD`). When a task exceeds this, the LLM is asked to wrap up soon. This is a reminder, not a hard stop.
 - **`memory_tools.py`**: Provides `memory_map` (read the metacognitive registry of all data sources) and `memory_update_registry` (add/update entries). Part of the Memory Registry system (v3.16.0).
 - **`tool_discovery.py`**: Provides `list_available_tools` (discover non-core tools) and `enable_tools` (activate extra tools for the current task). Enables dynamic tool set management.
 - Core tools always available; extra tools discoverable via `list_available_tools`/`enable_tools`
@@ -584,6 +585,7 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 | CLAUDE_CODE_MODEL | opus | Anthropic model for Claude Code CLI (sonnet, opus, or full name) |
 | OUROBOROS_MAX_WORKERS | 5 | Worker process pool size |
 | TOTAL_BUDGET | 10.0 | Total budget in USD |
+| OUROBOROS_PER_TASK_COST_USD | 20.0 | Per-task soft threshold in USD |
 | OUROBOROS_WEBSEARCH_MODEL | gpt-5.2 | OpenAI model for web_search tool |
 | OUROBOROS_REVIEW_MODELS | openai/gpt-5.4,google/gemini-3.1-pro-preview,anthropic/claude-opus-4.6 | Comma-separated OpenRouter model IDs for pre-commit review (min 2 for quorum) |
 | OUROBOROS_REVIEW_ENFORCEMENT | blocking | Pre-commit review enforcement: `advisory` or `blocking` |

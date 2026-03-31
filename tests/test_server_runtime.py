@@ -22,7 +22,7 @@ def test_has_supervisor_provider_requires_remote_credentials_or_local_routing():
     assert not has_supervisor_provider({"LOCAL_MODEL_SOURCE": "Qwen/Qwen2.5-7B-Instruct-GGUF"})
 
 
-def test_apply_runtime_provider_defaults_autofills_official_openai_lanes():
+def test_apply_runtime_provider_defaults_autofills_official_openai_models():
     normalized, changed, changed_keys = apply_runtime_provider_defaults({
         "OPENAI_API_KEY": "sk-openai",
         "OUROBOROS_MODEL": "anthropic/claude-opus-4.6",

@@ -15,6 +15,7 @@ def test_chat_progress_updates_route_into_live_card():
     source = _read("web/modules/chat.js")
 
     assert "const liveCardRecords = new Map();" in source
+    assert "const taskUiStates = new Map();" in source
     assert "summarizeChatLiveEvent" in source
     assert "Show details" in source
     assert "if (msg.is_progress) {" in source
@@ -27,6 +28,14 @@ def test_chat_progress_updates_route_into_live_card():
     assert "hideTypingIndicatorOnly();" in source
     assert "function hasActiveLiveCard()" in source
     assert "state.activePage !== 'chat'" in source
+    assert "function isNearBottom(threshold = 96)" in source
+    assert "if (node.parentNode === messagesDiv) {" in source
+    assert "if (shouldStick) messagesDiv.scrollTop = messagesDiv.scrollHeight;" in source
+    assert "function markTaskToolCall(taskId, count = 1, minimumOnly = false)" in source
+    assert "taskState.forceCard || taskState.toolCalls > 1 || shouldAlwaysShowTaskCard(taskState.taskId)" in source
+    assert "function forceTaskCard(taskId)" in source
+    assert "function markAssistantReply(taskId = '')" in source
+    assert "if (!getTaskUiState(msg.task_id || '', false)) continue;" in source
     assert "const wasFinished = record.finished;" in source
     assert "const justFinished = record.finished && !wasFinished;" in source
     assert "if (justFinished) {" in source

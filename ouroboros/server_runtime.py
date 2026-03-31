@@ -110,7 +110,7 @@ def has_local_model_source(settings: dict) -> bool:
 
 
 def has_local_routing(settings: dict) -> bool:
-    """Return True when any model lane is configured to use the local server."""
+    """Return True when any model slot is configured to use the local server."""
     return any(
         _truthy_setting(settings.get(k))
         for k in ("USE_LOCAL_MAIN", "USE_LOCAL_CODE", "USE_LOCAL_LIGHT", "USE_LOCAL_FALLBACK")

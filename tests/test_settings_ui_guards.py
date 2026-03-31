@@ -41,13 +41,23 @@ class TestSettingsUiGuards(unittest.TestCase):
     def test_strange_settings_have_inline_explainer_copy(self):
         source = self._read_settings_sources()["settings_ui"]
         self.assertIn("Adds a password wall only for non-localhost browser and API access.", source)
-        self.assertIn("still runs review but lets you decide", source)
+        self.assertIn("keeps review visible but flexible", source)
         self.assertIn("Backward-compatibility escape hatch for older installs.", source)
+
+    def test_advanced_settings_expose_websearch_and_task_cap(self):
+        source = self._read_settings_sources()["settings_ui"]
+        self.assertIn("Web Search Model", source)
+        self.assertIn("Per-task Cost Cap ($)", source)
 
     def test_settings_tabs_are_single_row_scrollable(self):
         css = (REPO / "web/settings.css").read_text(encoding="utf-8")
         self.assertIn("flex-wrap: nowrap;", css)
         self.assertIn("overflow-x: auto;", css)
+
+    def test_runtime_tab_is_merged_into_advanced(self):
+        source = self._read_settings_sources()["settings_ui"]
+        self.assertNotIn('data-settings-tab="runtime"', source)
+        self.assertIn('data-settings-tab="advanced"', source)
 
     def test_save_reloads_settings_after_success(self):
         source = self._read_settings_sources()["settings"]

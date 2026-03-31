@@ -87,6 +87,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     let historySyncPromise = null;
     let welcomeShown = false;
     const liveCardRecords = new Map();
+    const taskUiStates = new Map();
     let activeLiveGroupId = '';
     let historySyncTimer = null;
 
@@ -186,11 +187,131 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         } catch {}
     }
 
+    function isNearBottom(threshold = 96) {
+        const remaining = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight;
+        return remaining <= threshold;
+    }
+
     function insertMessageNode(node) {
+        if (!node) return;
+        const shouldStick = isNearBottom();
+        if (node.parentNode === messagesDiv) {
+            if (shouldStick) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return;
+        }
         const typing = document.getElementById('typing-indicator');
         if (typing && typing.parentNode === messagesDiv) messagesDiv.insertBefore(node, typing);
         else messagesDiv.appendChild(node);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        if (shouldStick) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function shouldAlwaysShowTaskCard(taskId = '') {
+        return taskId === 'bg-consciousness';
+    }
+
+    function createTaskUiState(taskId) {
+        if (!taskId) return null;
+        const taskState = {
+            taskId,
+            toolCalls: 0,
+            forceCard: false,
+            cardVisible: false,
+            bufferedLiveUpdates: [],
+            cleanupTimer: null,
+        };
+        taskUiStates.set(taskId, taskState);
+        return taskState;
+    }
+
+    function getTaskUiState(taskId = '', createIfMissing = true) {
+        if (!taskId) return null;
+        if (taskUiStates.has(taskId)) return taskUiStates.get(taskId);
+        return createIfMissing ? createTaskUiState(taskId) : null;
+    }
+
+    function scheduleTaskUiCleanup(taskState, delayMs = 120000) {
+        if (!taskState) return;
+        if (taskState.cleanupTimer) clearTimeout(taskState.cleanupTimer);
+        taskState.cleanupTimer = setTimeout(() => {
+            taskUiStates.delete(taskState.taskId);
+        }, delayMs);
+    }
+
+    function bufferLiveUpdate(taskState, summary, ts, dedupeKey = '') {
+        if (!taskState || !summary) return;
+        taskState.bufferedLiveUpdates.push({
+            summary,
+            ts,
+            dedupeKey: dedupeKey || summary.dedupeKey || '',
+        });
+        if (taskState.bufferedLiveUpdates.length > 20) {
+            taskState.bufferedLiveUpdates.shift();
+        }
+    }
+
+    function revealBufferedCardIfNeeded(taskState) {
+        if (!taskState || taskState.cardVisible) return;
+        if (!(taskState.forceCard || taskState.toolCalls > 1 || shouldAlwaysShowTaskCard(taskState.taskId))) {
+            return;
+        }
+        taskState.cardVisible = true;
+        activeLiveGroupId = taskState.taskId;
+        const record = getLiveCardRecord(taskState.taskId);
+        ensureLiveCardVisible(record);
+        const bufferedUpdates = [...taskState.bufferedLiveUpdates];
+        taskState.bufferedLiveUpdates = [];
+        for (const update of bufferedUpdates) {
+            applyLiveCardState(update.summary, taskState.taskId, update.ts, update.dedupeKey);
+        }
+    }
+
+    function markTaskToolCall(taskId, count = 1, minimumOnly = false) {
+        const taskState = getTaskUiState(taskId, true);
+        if (!taskState) return null;
+        const safeCount = Math.max(0, Number(count) || 0);
+        if (minimumOnly) {
+            taskState.toolCalls = Math.max(taskState.toolCalls, safeCount);
+        } else {
+            taskState.toolCalls += safeCount;
+        }
+        revealBufferedCardIfNeeded(taskState);
+        return taskState;
+    }
+
+    function forceTaskCard(taskId) {
+        const taskState = getTaskUiState(taskId, true);
+        if (!taskState) return null;
+        taskState.forceCard = true;
+        revealBufferedCardIfNeeded(taskState);
+        return taskState;
+    }
+
+    function markAssistantReply(taskId = '') {
+        const resolvedTaskId = taskId || activeLiveGroupId || '';
+        if (!resolvedTaskId) return;
+        const taskState = getTaskUiState(resolvedTaskId, false);
+        if (!taskState) return;
+        if (!taskState.cardVisible) {
+            taskUiStates.delete(resolvedTaskId);
+            return;
+        }
+        scheduleTaskUiCleanup(taskState);
+    }
+
+    function queueTaskLiveUpdate(summary, taskId, ts, dedupeKey = '') {
+        const resolvedTaskId = taskId || activeLiveGroupId || '';
+        if (!resolvedTaskId) return;
+        const taskState = getTaskUiState(resolvedTaskId, true);
+        if (!taskState) return;
+        if (summary.phase === 'error' || summary.phase === 'timeout') {
+            taskState.forceCard = true;
+        }
+        if (!taskState.cardVisible) {
+            bufferLiveUpdate(taskState, summary, ts, dedupeKey);
+            revealBufferedCardIfNeeded(taskState);
+            return;
+        }
+        applyLiveCardState(summary, resolvedTaskId, ts, dedupeKey);
     }
 
     function createLiveCardRecord(groupId = '') {
@@ -422,10 +543,20 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     }
 
     function appendTaskSummaryToLiveCard(msg) {
-        const taskId = msg?.task_id || activeLiveGroupId || 'chat';
+        const taskId = msg?.task_id || activeLiveGroupId || '';
         const text = msg?.content || msg?.text || '';
-        if (!text) {
+        if (!taskId || !text) {
             finishLiveCard(taskId, 'done');
+            return;
+        }
+        const taskState = getTaskUiState(taskId, false);
+        if (!taskState) {
+            finishLiveCard(taskId, 'done');
+            return;
+        }
+        revealBufferedCardIfNeeded(taskState);
+        if (!taskState.cardVisible) {
+            markAssistantReply(taskId);
             return;
         }
         applyLiveCardState(
@@ -442,10 +573,12 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             `task_summary|${text}`,
         );
         finishLiveCard(taskId, 'done');
+        scheduleTaskUiCleanup(taskState);
     }
 
     function updateLiveCardFromProgressMessage(msg) {
-        const taskId = msg?.task_id || activeLiveGroupId || 'chat';
+        const taskId = msg?.task_id || activeLiveGroupId || '';
+        if (!taskId) return;
         const summary = summarizeChatLiveEvent({
             type: 'send_message',
             is_progress: true,
@@ -454,24 +587,34 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             task_id: taskId,
         });
         if (!summary) return;
-        applyLiveCardState(
-            summary,
-            taskId,
-            normalizeLogTs(msg.ts || new Date().toISOString()),
-            summary.dedupeKey || '',
-        );
+        queueTaskLiveUpdate(summary, taskId, normalizeLogTs(msg.ts || new Date().toISOString()), summary.dedupeKey || '');
     }
 
     function updateLiveCardFromLogEvent(evt) {
         if (!evt || !isGroupedTaskEvent(evt)) return;
+        const taskId = getLogTaskGroupId(evt) || activeLiveGroupId || '';
+        if (!taskId) return;
+        const eventType = evt.type || evt.event || '';
+        if (eventType === 'tool_call_started') {
+            markTaskToolCall(taskId, 1);
+        } else if ((eventType === 'task_metrics_event' || eventType === 'task_eval') && Number.isFinite(Number(evt.tool_calls))) {
+            markTaskToolCall(taskId, Number(evt.tool_calls), true);
+        } else if (
+            eventType === 'tool_call_timeout'
+            || eventType === 'tool_timeout'
+            || eventType === 'llm_round_error'
+            || eventType === 'llm_api_error'
+            || (eventType === 'tool_call_finished' && evt.is_error)
+        ) {
+            forceTaskCard(taskId);
+        }
         const summary = summarizeChatLiveEvent(evt);
         if (!summary) return;
-        applyLiveCardState(
-            summary,
-            getLogTaskGroupId(evt) || activeLiveGroupId || 'active',
-            normalizeLogTs(evt.ts || evt.timestamp),
-            summary.dedupeKey || '',
-        );
+        queueTaskLiveUpdate(summary, taskId, normalizeLogTs(evt.ts || evt.timestamp), summary.dedupeKey || '');
+        if (eventType === 'task_done') {
+            const taskState = getTaskUiState(taskId, false);
+            revealBufferedCardIfNeeded(taskState);
+        }
     }
 
     function addMessage(text, role, markdown = false, timestamp = null, isProgress = false, opts = {}) {
@@ -566,10 +709,12 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                 for (const msg of messages) {
                     if (!includeUser && msg.role === 'user') continue;
                     if (msg.is_progress) {
+                        if (!getTaskUiState(msg.task_id || '', false)) continue;
                         updateLiveCardFromProgressMessage(msg);
                         continue;
                     }
                     if (msg.system_type === 'task_summary') {
+                        if (!getTaskUiState(msg.task_id || '', false)) continue;
                         appendTaskSummaryToLiveCard(msg);
                         continue;
                     }
@@ -731,7 +876,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     function showTyping() {
         if (!hasActiveLiveCard()) {
             typingEl.style.display = '';
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            if (isNearBottom()) messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
         setStatus('thinking', 'Thinking...');
     }
@@ -778,20 +923,23 @@ export function initChat({ ws, state, updateUnreadBadge }) {
 
         if (msg.role === 'assistant' || msg.role === 'system') {
             hideTyping();
+            const taskId = msg.task_id || activeLiveGroupId || '';
             if (msg.is_progress) {
                 updateLiveCardFromProgressMessage(msg);
                 return;
             }
             if (msg.system_type === 'task_summary') {
                 appendTaskSummaryToLiveCard(msg);
+                markAssistantReply(taskId);
                 incrementUnreadIfNeeded();
                 return;
             }
-            finishLiveCard(msg.task_id || activeLiveGroupId);
+            finishLiveCard(taskId);
+            markAssistantReply(taskId);
             addMessage(msg.content, msg.role, msg.markdown, msg.ts || null, false, {
                 systemType: msg.system_type || '',
                 source: msg.source || '',
-                taskId: msg.task_id || '',
+                taskId,
             });
             incrementUnreadIfNeeded();
         }

@@ -731,7 +731,7 @@ def _run_first_run_wizard() -> bool:
 
     webview.create_window(
         "Ouroboros — Setup",
-        html=build_onboarding_html(settings),
+        html=build_onboarding_html(settings, host_mode="desktop"),
         js_api=WizardApi(),
         width=980,
         height=780,

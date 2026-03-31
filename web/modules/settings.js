@@ -94,9 +94,13 @@ export function initSettings({ state }) {
         byId('s-review-enforcement').value = s.OUROBOROS_REVIEW_ENFORCEMENT || 'advisory';
         if (s.OUROBOROS_MAX_WORKERS) byId('s-workers').value = s.OUROBOROS_MAX_WORKERS;
         if (s.TOTAL_BUDGET) byId('s-budget').value = s.TOTAL_BUDGET;
+        if (s.OUROBOROS_PER_TASK_COST_USD !== null && s.OUROBOROS_PER_TASK_COST_USD !== undefined) {
+            byId('s-per-task-cost').value = s.OUROBOROS_PER_TASK_COST_USD;
+        }
         if (s.OUROBOROS_SOFT_TIMEOUT_SEC) byId('s-soft-timeout').value = s.OUROBOROS_SOFT_TIMEOUT_SEC;
         if (s.OUROBOROS_HARD_TIMEOUT_SEC) byId('s-hard-timeout').value = s.OUROBOROS_HARD_TIMEOUT_SEC;
         if (s.OUROBOROS_TOOL_TIMEOUT_SEC) byId('s-tool-timeout').value = s.OUROBOROS_TOOL_TIMEOUT_SEC;
+        applyInputValue('s-websearch-model', s.OUROBOROS_WEBSEARCH_MODEL);
         applyInputValue('s-gh-token', s.GITHUB_TOKEN);
         applyInputValue('s-gh-repo', s.GITHUB_REPO);
         applyInputValue('s-local-source', s.LOCAL_MODEL_SOURCE);
@@ -136,9 +140,11 @@ export function initSettings({ state }) {
             OUROBOROS_REVIEW_ENFORCEMENT: byId('s-review-enforcement').value,
             OUROBOROS_MAX_WORKERS: readInt('s-workers', 5),
             TOTAL_BUDGET: readFloat('s-budget', 10),
+            OUROBOROS_PER_TASK_COST_USD: readFloat('s-per-task-cost', 20),
             OUROBOROS_SOFT_TIMEOUT_SEC: readInt('s-soft-timeout', 600),
             OUROBOROS_HARD_TIMEOUT_SEC: readInt('s-hard-timeout', 1800),
             OUROBOROS_TOOL_TIMEOUT_SEC: readInt('s-tool-timeout', 120),
+            OUROBOROS_WEBSEARCH_MODEL: byId('s-websearch-model').value.trim(),
             GITHUB_REPO: byId('s-gh-repo').value,
             LOCAL_MODEL_SOURCE: byId('s-local-source').value,
             LOCAL_MODEL_FILENAME: byId('s-local-filename').value,

@@ -88,7 +88,7 @@ def _check_budget_limits(
 
     budget_pct = task_cost / budget_remaining_usd if budget_remaining_usd > 0 else 1.0
 
-    per_task_limit = float(os.environ.get("OUROBOROS_PER_TASK_COST_USD", "5.0") or 5.0)
+    per_task_limit = float(os.environ.get("OUROBOROS_PER_TASK_COST_USD", "20.0") or 20.0)
     if task_cost >= per_task_limit and round_idx % 10 == 0:
         messages.append({
             "role": "user",

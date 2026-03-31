@@ -28,10 +28,10 @@ function secretField({ id, settingKey, label, placeholder }) {
     `;
 }
 
-function laneCard({ title, copy, inputId, toggleId, defaultValue }) {
+function modelCard({ title, copy, inputId, toggleId, defaultValue }) {
     return `
-        <div class="settings-lane-card">
-            <div class="settings-lane-header">
+        <div class="settings-model-card">
+            <div class="settings-model-header">
                 <div>
                     <h4>${title}</h4>
                     <p>${copy}</p>
@@ -77,7 +77,6 @@ export function renderSettingsPage() {
                 <div class="settings-tabs">
                     <button class="settings-tab active" data-settings-tab="providers">Providers</button>
                     <button class="settings-tab" data-settings-tab="models">Models</button>
-                    <button class="settings-tab" data-settings-tab="runtime">Runtime</button>
                     <button class="settings-tab" data-settings-tab="integrations">Integrations</button>
                     <button class="settings-tab" data-settings-tab="advanced">Advanced</button>
                 </div>
@@ -92,7 +91,7 @@ export function renderSettingsPage() {
                     ${providerCard({
                         id: 'openrouter',
                         title: 'OpenRouter',
-                        icon: '/static/providers/openrouter.svg',
+                        icon: '/static/providers/openrouter.ico',
                         hint: 'Default multi-model router',
                         open: true,
                         body: `<div class="form-row">${secretField({
@@ -114,7 +113,7 @@ export function renderSettingsPage() {
                                 label: 'OpenAI API Key',
                                 placeholder: 'sk-...',
                             })}</div>
-                            <div class="settings-inline-note">Use model values like <code>openai::gpt-5.4</code> in the Models tab to route lanes here. If OpenRouter is absent and the shipped defaults are still untouched, Ouroboros now auto-remaps them to official OpenAI defaults.</div>
+                            <div class="settings-inline-note">Use model values like <code>openai::gpt-5.4</code> in the Models tab to route models directly here. If OpenRouter is absent and the shipped defaults are still untouched, Ouroboros auto-remaps them to official OpenAI defaults.</div>
                         `,
                     })}
                     ${providerCard({
@@ -161,7 +160,7 @@ export function renderSettingsPage() {
                     ${providerCard({
                         id: 'anthropic',
                         title: 'Anthropic',
-                        icon: '/static/providers/anthropic.svg',
+                        icon: '/static/providers/anthropic.png',
                         hint: 'Direct runtime plus Claude tooling',
                         body: `
                             <div class="form-row">${secretField({
@@ -170,7 +169,7 @@ export function renderSettingsPage() {
                                 label: 'Anthropic API Key',
                                 placeholder: 'sk-ant-...',
                             })}</div>
-                            <div class="settings-inline-note">Use model values like <code>anthropic::claude-sonnet-4-6</code> in the Models tab to route lanes directly through Anthropic. Claude tooling still reuses this key.</div>
+                            <div class="settings-inline-note">Use model values like <code>anthropic::claude-sonnet-4-6</code> in the Models tab to route models directly through Anthropic. Claude tooling still reuses this key.</div>
                         `,
                     })}
                     <div class="form-section compact">
@@ -189,18 +188,18 @@ export function renderSettingsPage() {
                     <div class="form-section">
                         <h3>Model Routing</h3>
                         <div class="settings-section-copy">
-                            These fields are cloud model IDs. Enable <code>Local</code> to route that lane
+                            These fields are cloud model IDs. Enable <code>Local</code> to route that model
                             through the GGUF server configured above.
                         </div>
                         <div class="settings-toolbar">
                             <button type="button" class="settings-ghost-btn" id="btn-refresh-model-catalog">Refresh Model Catalog</button>
                             <span id="settings-model-catalog-status" class="settings-inline-status">Model catalog is optional and failure-tolerant.</span>
                         </div>
-                        <div class="settings-lane-grid">
-                            ${laneCard({ title: 'Main', copy: 'Primary reasoning lane.', inputId: 's-model', toggleId: 's-local-main', defaultValue: 'anthropic/claude-opus-4.6' })}
-                            ${laneCard({ title: 'Code', copy: 'Tool-heavy coding lane.', inputId: 's-model-code', toggleId: 's-local-code', defaultValue: 'anthropic/claude-opus-4.6' })}
-                            ${laneCard({ title: 'Light', copy: 'Fast summaries and lightweight tasks.', inputId: 's-model-light', toggleId: 's-local-light', defaultValue: 'anthropic/claude-sonnet-4.6' })}
-                            ${laneCard({ title: 'Fallback', copy: 'Resilience and degraded path.', inputId: 's-model-fallback', toggleId: 's-local-fallback', defaultValue: 'anthropic/claude-sonnet-4.6' })}
+                        <div class="settings-model-grid">
+                            ${modelCard({ title: 'Main', copy: 'Primary reasoning model.', inputId: 's-model', toggleId: 's-local-main', defaultValue: 'anthropic/claude-opus-4.6' })}
+                            ${modelCard({ title: 'Code', copy: 'Tool-heavy coding model.', inputId: 's-model-code', toggleId: 's-local-code', defaultValue: 'anthropic/claude-opus-4.6' })}
+                            ${modelCard({ title: 'Light', copy: 'Fast summaries and lightweight tasks.', inputId: 's-model-light', toggleId: 's-local-light', defaultValue: 'anthropic/claude-sonnet-4.6' })}
+                            ${modelCard({ title: 'Fallback', copy: 'Resilience and degraded path.', inputId: 's-model-fallback', toggleId: 's-local-fallback', defaultValue: 'anthropic/claude-sonnet-4.6' })}
                         </div>
                         <div class="form-row">
                             <div class="form-field">
@@ -228,85 +227,6 @@ export function renderSettingsPage() {
                                 <label>Pre-commit Review Models</label>
                                 <input id="s-review-models" placeholder="model1,model2,model3">
                                 <div class="settings-inline-note">Comma-separated review models. In direct-provider-only mode, review automatically falls back to repeated runs of the current main model when this list still points elsewhere.</div>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-field">
-                                <label>Review Enforcement</label>
-                                <select id="s-review-enforcement">
-                                    <option value="advisory">Advisory</option>
-                                    <option value="blocking">Blocking</option>
-                                </select>
-                                <div class="settings-inline-note"><code>Advisory</code> still runs review but lets you decide. <code>Blocking</code> stops commits when critical review findings remain unresolved.</div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section class="settings-panel" data-settings-panel="runtime">
-                    <div class="form-section">
-                        <h3>Local Model Runtime</h3>
-                        <div class="settings-section-copy">Only fill this in when you want Ouroboros to start and route to a GGUF model on this machine.</div>
-                        <div class="form-grid two">
-                            <div class="form-field">
-                                <label>Model Source</label>
-                                <input id="s-local-source" placeholder="bartowski/Llama-3.3-70B-Instruct-GGUF or /path/to/model.gguf">
-                            </div>
-                            <div class="form-field">
-                                <label>GGUF Filename (for HF repos)</label>
-                                <input id="s-local-filename" placeholder="Llama-3.3-70B-Instruct-Q4_K_M.gguf">
-                            </div>
-                        </div>
-                        <div class="form-grid four">
-                            <div class="form-field">
-                                <label>Port</label>
-                                <input id="s-local-port" type="number" value="8766">
-                            </div>
-                            <div class="form-field">
-                                <label>GPU Layers (-1 = all)</label>
-                                <input id="s-local-gpu-layers" type="number" value="-1">
-                            </div>
-                            <div class="form-field">
-                                <label>Context Length</label>
-                                <input id="s-local-ctx" type="number" value="16384">
-                            </div>
-                            <div class="form-field">
-                                <label>Chat Format</label>
-                                <input id="s-local-chat-format" placeholder="auto-detect">
-                            </div>
-                        </div>
-                        <div class="settings-toolbar">
-                            <button class="btn btn-primary" id="btn-local-start">Start</button>
-                            <button class="btn btn-primary" id="btn-local-stop">Stop</button>
-                            <button class="btn btn-primary" id="btn-local-test">Test Tool Calling</button>
-                        </div>
-                        <div id="local-model-status" class="settings-inline-status">Status: Offline</div>
-                        <div id="local-model-test-result" class="settings-test-result"></div>
-                    </div>
-
-                    <div class="form-section">
-                        <h3>Supervisor Runtime</h3>
-                        <div class="settings-section-copy">Workers control parallel task capacity. The timeout values are safety brakes for long or stuck tasks and tools.</div>
-                        <div class="form-grid two">
-                            <div class="form-field">
-                                <label>Max Workers</label>
-                                <input id="s-workers" type="number" min="1" max="10" value="5">
-                            </div>
-                            <div class="form-field">
-                                <label>Total Budget ($)</label>
-                                <input id="s-budget" type="number" min="1" value="10">
-                            </div>
-                            <div class="form-field">
-                                <label>Soft Timeout (s)</label>
-                                <input id="s-soft-timeout" type="number" value="600">
-                            </div>
-                            <div class="form-field">
-                                <label>Hard Timeout (s)</label>
-                                <input id="s-hard-timeout" type="number" value="1800">
-                            </div>
-                            <div class="form-field">
-                                <label>Tool Timeout (s)</label>
-                                <input id="s-tool-timeout" type="number" value="120">
                             </div>
                         </div>
                     </div>
@@ -353,6 +273,97 @@ export function renderSettingsPage() {
                 </section>
 
                 <section class="settings-panel" data-settings-panel="advanced">
+                    <div class="form-section">
+                        <h3>Local Model Runtime</h3>
+                        <div class="settings-section-copy">Only fill this in when you want Ouroboros to start and route to a GGUF model on this machine.</div>
+                        <div class="form-grid two">
+                            <div class="form-field">
+                                <label>Model Source</label>
+                                <input id="s-local-source" placeholder="bartowski/Llama-3.3-70B-Instruct-GGUF or /path/to/model.gguf">
+                            </div>
+                            <div class="form-field">
+                                <label>GGUF Filename (for HF repos)</label>
+                                <input id="s-local-filename" placeholder="Llama-3.3-70B-Instruct-Q4_K_M.gguf">
+                            </div>
+                        </div>
+                        <div class="form-grid four">
+                            <div class="form-field">
+                                <label>Port</label>
+                                <input id="s-local-port" type="number" value="8766">
+                            </div>
+                            <div class="form-field">
+                                <label>GPU Layers (-1 = all)</label>
+                                <input id="s-local-gpu-layers" type="number" value="-1">
+                            </div>
+                            <div class="form-field">
+                                <label>Context Length</label>
+                                <input id="s-local-ctx" type="number" value="16384">
+                            </div>
+                            <div class="form-field">
+                                <label>Chat Format</label>
+                                <input id="s-local-chat-format" placeholder="auto-detect">
+                            </div>
+                        </div>
+                        <div class="settings-toolbar">
+                            <button class="btn btn-primary" id="btn-local-start">Start</button>
+                            <button class="btn btn-primary" id="btn-local-stop">Stop</button>
+                            <button class="btn btn-primary" id="btn-local-test">Test Tool Calling</button>
+                        </div>
+                        <div id="local-model-status" class="settings-inline-status">Status: Offline</div>
+                        <div id="local-model-test-result" class="settings-test-result"></div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Runtime Budget And Limits</h3>
+                        <div class="settings-section-copy">Workers control parallel task capacity. Budget and timeout values are safety rails for long or stuck tasks and tools.</div>
+                        <div class="form-grid two">
+                            <div class="form-field">
+                                <label>Max Workers</label>
+                                <input id="s-workers" type="number" min="1" max="10" value="5">
+                            </div>
+                            <div class="form-field">
+                                <label>Total Budget ($)</label>
+                                <input id="s-budget" type="number" min="1" value="10">
+                            </div>
+                            <div class="form-field">
+                                <label>Per-task Cost Cap ($)</label>
+                                <input id="s-per-task-cost" type="number" min="1" value="20">
+                                <div class="settings-inline-note">Soft threshold only. When a task crosses it, Ouroboros is asked to wrap up rather than being hard-killed.</div>
+                            </div>
+                            <div class="form-field">
+                                <label>Soft Timeout (s)</label>
+                                <input id="s-soft-timeout" type="number" value="600">
+                            </div>
+                            <div class="form-field">
+                                <label>Hard Timeout (s)</label>
+                                <input id="s-hard-timeout" type="number" value="1800">
+                            </div>
+                            <div class="form-field">
+                                <label>Tool Timeout (s)</label>
+                                <input id="s-tool-timeout" type="number" value="120">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Research And Review</h3>
+                        <div class="form-grid two">
+                            <div class="form-field">
+                                <label>Web Search Model</label>
+                                <input id="s-websearch-model" placeholder="gpt-5.2">
+                                <div class="settings-inline-note">OpenAI model used by the built-in web search tool when no per-call override is supplied.</div>
+                            </div>
+                            <div class="form-field">
+                                <label>Review Enforcement</label>
+                                <select id="s-review-enforcement">
+                                    <option value="advisory">Advisory</option>
+                                    <option value="blocking">Blocking</option>
+                                </select>
+                                <div class="settings-inline-note"><code>Advisory</code> keeps review visible but flexible. <code>Blocking</code> stops commits when critical review findings remain unresolved.</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="form-section">
                         <h3>Legacy Compatibility</h3>
                         <div class="form-row">

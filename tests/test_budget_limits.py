@@ -94,11 +94,11 @@ class TestPerTaskSoftReminder:
         # 9.0 < 10.0 → no message at all
         assert result is None
 
-    def test_default_limit_5_no_hard_stop(self, tmp_path):
-        """Without env var, default threshold is 5.0 — but still no hard stop."""
+    def test_default_limit_20_no_hard_stop(self, tmp_path):
+        """Without env var, default threshold is 20.0 — but still no hard stop."""
         messages = []
         args = _make_args(
-            accumulated_usage={"cost": 5.0},
+            accumulated_usage={"cost": 20.0},
             round_idx=10,
             messages=messages,
             drive_logs=tmp_path,
