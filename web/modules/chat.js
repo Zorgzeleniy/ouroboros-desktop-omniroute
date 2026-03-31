@@ -557,6 +557,11 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                 historyLoaded = true;
                 return messages.length > 0;
             } catch (err) {
+                const socketState = ws?.ws?.readyState;
+                const expectedDisconnect = socketState !== WebSocket.OPEN;
+                if (expectedDisconnect && err instanceof TypeError) {
+                    return false;
+                }
                 console.error('Failed to load chat history:', err);
                 return false;
             } finally {

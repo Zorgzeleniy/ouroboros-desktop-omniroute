@@ -43,6 +43,8 @@ def test_chat_resyncs_history_after_reconnect():
     assert "/api/chat/history?limit=1000" in source
     assert "cache: 'no-store'" in source
     assert "syncHistory({ includeUser: !historyLoaded })" in source
+    assert "const expectedDisconnect = socketState !== WebSocket.OPEN" in source
+    assert "if (expectedDisconnect && err instanceof TypeError)" in source
 
 
 def test_server_enables_ws_ping_and_heartbeat():
