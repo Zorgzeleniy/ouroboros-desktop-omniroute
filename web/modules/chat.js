@@ -1019,9 +1019,15 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         incrementUnreadIfNeeded();
     });
 
+    let wsHasConnectedOnce = false;
+
     ws.on('open', () => {
         setStatus('online', 'Online');
         refreshHeaderControlState(true);
+        if (wsHasConnectedOnce) {
+            addMessage('♻️ Reconnected', 'system', false, null, false, { ephemeral: true, systemType: 'reconnect' });
+        }
+        wsHasConnectedOnce = true;
         syncHistory({ includeUser: !historyLoaded })
             .then((hasMessages) => {
                 if (!hasMessages) ensureWelcomeMessage();

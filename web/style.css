@@ -786,10 +786,22 @@ body {
     text-align: left;
 }
 
-/* Progress (thinking) messages — same style as regular bubbles */
+/* Progress (thinking) messages — subdued and smaller than regular bubbles */
 .chat-bubble.progress {
-    border-left: 2px solid rgba(220, 38, 38, 0.3);
+    border-left: 2px solid rgba(220, 38, 38, 0.2);
     padding-left: 14px;
+    opacity: 0.72;
+}
+
+.chat-bubble.progress .sender {
+    font-size: 10px;
+    color: rgba(248, 113, 113, 0.6);
+}
+
+.chat-bubble.progress .message {
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(255, 228, 232, 0.55);
 }
 
 .chat-live-card {

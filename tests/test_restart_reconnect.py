@@ -119,6 +119,22 @@ def test_find_free_port_falls_back_when_stuck():
         blocker.close()
 
 
+def test_chat_shows_reconnect_banner_only_after_first_connection():
+    """chat.js should track first-open state and show reconnect banner only on re-open."""
+    source = _read("web/modules/chat.js")
+    assert "wsHasConnectedOnce" in source, "Missing reconnect-once tracking flag"
+    assert "Reconnected" in source, "Missing reconnect banner text"
+    # Ensure banner is ephemeral (not persisted to history)
+    assert "ephemeral: true" in source
+
+
+def test_progress_bubbles_have_subdued_styling():
+    """Progress/reasoning bubbles should be visually muted compared to regular ones."""
+    css = _read("web/style.css")
+    assert ".chat-bubble.progress .message" in css, "Missing progress-specific message style"
+    assert "font-size: 13px" in css, "Progress font should be smaller than default 15.5px"
+
+
 def test_restart_watchdog_waits_for_uvicorn_exit():
     source = _read("server.py")
     assert "_uvicorn_exited = threading.Event()" in source
