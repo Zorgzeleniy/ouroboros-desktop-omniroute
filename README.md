@@ -6,7 +6,7 @@
 [![macOS 12+](https://img.shields.io/badge/macOS-12%2B-black.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
 [![Linux](https://img.shields.io/badge/Linux-x86__64-orange.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
 [![Windows](https://img.shields.io/badge/Windows-x64-blue.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
-[![Version 4.7.6](https://img.shields.io/badge/version-4.7.6-green.svg)](VERSION)
+[![Version 4.7.7](https://img.shields.io/badge/version-4.7.7-green.svg)](VERSION)
 
 A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026.
 
@@ -369,6 +369,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 4.7.7 | 2026-04-01 | Chat live card polish: active Working/Thinking phase badge pulses with animation; inline typing dots (blue, 3-dot bounce) appear next to the phase badge while a task is running and hide on completion; standalone typing indicator still shows for fast replies before a live card is promoted. |
 | 4.7.6 | 2026-04-01 | Fix status badge stuck in "Working..." after task completion: `finishLiveCard` now resets the badge to "Online" when no active live cards remain; also fix pre-existing test asserting wrong font-size for `.chat-live-line-body`. |
 | 4.7.5 | 2026-04-01 | Chat UX: make visible thinking/working live cards smaller and more muted, add per-block expand/collapse to reveal full text, and show reconnect feedback after both soft reconnects and restart-triggered reloads. |
 | 4.7.4 | 2026-04-01 | Config: increase default tool timeout from 120s to 600s so long-running shell commands (e.g. `npm install -g @anthropic-ai/claude-code`) can complete without being killed. |

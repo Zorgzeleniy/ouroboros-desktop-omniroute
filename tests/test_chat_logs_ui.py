@@ -97,6 +97,30 @@ def test_dashboard_and_chat_only_poll_state_when_active():
     assert "Dashboard unavailable:" in dash_source
 
 
+def test_live_card_has_inline_typing_dots_and_pulsing_phase_badge():
+    css = _read("web/style.css")
+    chat_source = _read("web/modules/chat.js")
+
+    # Inline typing dots in live card summary
+    assert ".chat-live-typing {" in css
+    assert ".chat-live-typing span {" in css
+    assert 'animation: typing-bounce' in css
+    assert '.chat-live-card[data-finished="1"] .chat-live-typing {' in css
+
+    # Active phase badge should pulse
+    assert "animation: thinking-pulse" in css
+    assert '.chat-live-card:not([data-finished="1"]) .chat-live-phase.working' in css
+
+    # JS: typing visibility helpers exist
+    assert "function setLiveCardTypingVisible(record, visible) {" in chat_source
+    assert "inlineTypingEl: root.querySelector('[data-live-typing]')" in chat_source
+    assert "setLiveCardTypingVisible(record, false);" in chat_source
+    assert "setLiveCardTypingVisible(record, true);" in chat_source
+
+    # HTML template has the typing element
+    assert "data-live-typing" in chat_source
+
+
 def test_chat_history_replays_task_summaries_into_live_cards():
     history_source = _read("ouroboros/server_history_api.py")
     chat_source = _read("web/modules/chat.js")

@@ -384,6 +384,9 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                 <div class="chat-live-summary">
                     <div class="chat-live-summary-main">
                         <span class="chat-live-phase working" data-live-phase>Working</span>
+                        <div class="chat-live-typing" data-live-typing aria-hidden="true">
+                            <span></span><span></span><span></span>
+                        </div>
                         <span class="chat-live-title" data-live-title>Waiting for work</span>
                     </div>
                     <div class="chat-live-summary-side">
@@ -403,6 +406,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             root,
             summaryButtonEl: root.querySelector('[data-live-summary-button]'),
             phaseEl: root.querySelector('[data-live-phase]'),
+            inlineTypingEl: root.querySelector('[data-live-typing]'),
             titleEl: root.querySelector('[data-live-title]'),
             countEl: root.querySelector('[data-live-count]'),
             metaEl: root.querySelector('[data-live-meta]'),
@@ -437,6 +441,11 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         return liveCardRecords.get(normalizedGroupId) || createLiveCardRecord(normalizedGroupId);
     }
 
+    function setLiveCardTypingVisible(record, visible) {
+        if (!record?.inlineTypingEl) return;
+        record.inlineTypingEl.style.display = visible ? '' : 'none';
+    }
+
     function resetLiveCardRecord(record) {
         record.updates = 0;
         record.finished = false;
@@ -453,6 +462,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         record.timelineEl.innerHTML = '';
         record.root.style.minHeight = '';
         record.root.dataset.finished = '0';
+        setLiveCardTypingVisible(record, true);
         setLiveCardExpanded(record, false);
     }
 
@@ -620,6 +630,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         hideTypingIndicatorOnly();
         const justFinished = record.finished && !wasFinished;
         if (record.finished) {
+            setLiveCardTypingVisible(record, false);
             markTaskComplete(nextGroupId, summary.phase || 'done');
             if (justFinished) {
                 setLiveCardExpanded(record, false);
@@ -628,6 +639,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             syncLiveCardToggle(record);
             setStatus(summary.phase === 'error' || summary.phase === 'timeout' ? 'error' : 'online', summary.phase === 'error' || summary.phase === 'timeout' ? 'Attention' : 'Online');
         } else {
+            setLiveCardTypingVisible(record, true);
             setStatus('thinking', 'Working...');
         }
     }
@@ -646,6 +658,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
         record.phaseEl.dataset.phase = activePhase;
         record.phaseEl.textContent = formatLiveCardPhaseLabel(activePhase);
         record.phaseEl.className = `chat-live-phase ${activePhase}`;
+        setLiveCardTypingVisible(record, false);
         markTaskComplete(record.groupId, activePhase);
         if (!wasFinished) {
             setLiveCardExpanded(record, false);

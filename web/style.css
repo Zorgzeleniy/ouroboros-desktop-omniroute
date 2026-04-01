@@ -906,6 +906,15 @@ body {
     background: rgba(59, 130, 246, 0.10);
 }
 
+/* Active (non-finished) live card: pulse the Working/Thinking phase badge */
+.chat-live-card:not([data-finished="1"]) .chat-live-phase.working,
+.chat-live-card:not([data-finished="1"]) .chat-live-phase.thinking,
+.chat-live-card:not([data-finished="1"]) .chat-live-phase.progress,
+.chat-live-card:not([data-finished="1"]) .chat-live-phase.calling,
+.chat-live-card:not([data-finished="1"]) .chat-live-phase.context {
+    animation: thinking-pulse 1.5s ease-in-out infinite;
+}
+
 .chat-live-phase.done,
 .chat-live-phase.ready,
 .chat-live-phase.ok,
@@ -941,6 +950,30 @@ body {
     color: var(--red);
     border-color: rgba(239, 68, 68, 0.25);
     background: rgba(239, 68, 68, 0.10);
+}
+
+/* Inline typing dots inside the live card summary row */
+.chat-live-typing {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.chat-live-typing span {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: rgba(59, 130, 246, 0.7);
+    animation: typing-bounce 1.4s ease-in-out infinite;
+}
+
+.chat-live-typing span:nth-child(2) { animation-delay: 0.2s; }
+.chat-live-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+/* Hide typing dots when card is finished */
+.chat-live-card[data-finished="1"] .chat-live-typing {
+    display: none;
 }
 
 .chat-live-title {
