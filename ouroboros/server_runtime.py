@@ -119,7 +119,10 @@ def has_local_routing(settings: dict) -> bool:
 
 def has_startup_ready_provider(settings: dict) -> bool:
     """Return True when startup/onboarding should consider runtime configured."""
-    return has_remote_provider(settings) or has_local_model_source(settings)
+    # Startup should only skip onboarding when the runtime can actually serve
+    # chat after boot. A local model source alone is not enough unless at least
+    # one lane is routed to that local runtime.
+    return has_remote_provider(settings) or has_local_routing(settings)
 
 
 def has_supervisor_provider(settings: dict) -> bool:

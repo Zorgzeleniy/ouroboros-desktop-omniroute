@@ -1,3 +1,5 @@
+import pytest
+import ouroboros.pricing as pricing_module
 from ouroboros.llm import LLMClient
 
 
@@ -115,3 +117,48 @@ def test_resolve_cloudru_target_uses_default_base_url(monkeypatch):
     assert target["api_key"] == "cloudru-key"
     assert target["base_url"] == "https://foundation-models.api.cloud.ru/v1"
     assert target["usage_model"] == "cloudru/giga-model"
+
+
+def test_normalize_remote_response_estimates_cost_for_direct_openai(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+
+    client = LLMClient()
+    target = client._resolve_remote_target("openai::gpt-5.2")
+    seen = {}
+
+    def fake_estimate_cost(model, prompt_tokens, completion_tokens, cached_tokens=0, cache_write_tokens=0):
+        seen["args"] = (model, prompt_tokens, completion_tokens, cached_tokens, cache_write_tokens)
+        return 0.123456
+
+    monkeypatch.setattr(pricing_module, "estimate_cost", fake_estimate_cost)
+
+    message, usage = client._normalize_remote_response(
+        {
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 40,
+                "prompt_tokens_details": {"cached_tokens": 10},
+            },
+        },
+        target,
+    )
+
+    assert message["content"] == "ok"
+    assert usage["provider"] == "openai"
+    assert usage["resolved_model"] == "openai/gpt-5.2"
+    assert usage["cached_tokens"] == 10
+    assert usage["cost"] == 0.123456
+    assert seen["args"] == ("openai/gpt-5.2", 100, 40, 10, 0)
+
+
+def test_build_anthropic_messages_rejects_tool_result_without_tool_call_id(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+
+    client = LLMClient()
+
+    with pytest.raises(ValueError, match="tool_call_id"):
+        client._build_anthropic_messages([
+            {"role": "user", "content": "hi"},
+            {"role": "tool", "content": "done"},
+        ])

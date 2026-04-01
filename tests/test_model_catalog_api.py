@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 
 import ouroboros.model_catalog_api as model_catalog_api
 
@@ -77,3 +78,23 @@ def test_model_catalog_returns_errors_nonfatally(monkeypatch):
         {"provider_id": "anthropic", "error": "anthropic failed"},
         {"provider_id": "openai-compatible", "error": "catalog failed"},
     ]
+
+
+def test_model_catalog_runs_provider_loaders_off_event_loop_thread(monkeypatch):
+    monkeypatch.setattr(model_catalog_api, "load_settings", lambda: {})
+    thread_ids = []
+    main_thread_id = threading.get_ident()
+
+    def _loader():
+        thread_ids.append(threading.get_ident())
+        return [{"value": "provider::model", "label": "Provider Model"}]
+
+    monkeypatch.setattr(model_catalog_api, "_provider_specs", lambda settings: [("provider", _loader)])
+
+    response = asyncio.run(model_catalog_api.api_model_catalog(None))
+    payload = json.loads(response.body.decode("utf-8"))
+
+    assert payload["items"] == [{"value": "provider::model", "label": "Provider Model"}]
+    assert payload["errors"] == []
+    assert thread_ids
+    assert all(thread_id != main_thread_id for thread_id in thread_ids)

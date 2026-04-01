@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Callable
 
 import requests
@@ -215,19 +216,30 @@ async def api_model_catalog(_request: Request) -> JSONResponse:
     errors: list[dict[str, str]] = []
     seen_values: set[str] = set()
 
-    for provider_id, loader in _provider_specs(settings):
+    def _load_provider(provider_id: str, loader: Callable[[], list[dict[str, str]]]) -> tuple[str, list[dict[str, str]], str]:
         try:
-            for item in loader():
-                value = str(item.get("value", "") or "")
-                if not value or value in seen_values:
-                    continue
-                seen_values.add(value)
-                items.append(item)
+            return provider_id, loader(), ""
         except Exception as exc:
+            return provider_id, [], str(exc)
+
+    results = await asyncio.gather(*[
+        asyncio.to_thread(_load_provider, provider_id, loader)
+        for provider_id, loader in _provider_specs(settings)
+    ])
+
+    for provider_id, provider_items, error in results:
+        if error:
             errors.append({
                 "provider_id": provider_id,
-                "error": str(exc),
+                "error": error,
             })
+            continue
+        for item in provider_items:
+            value = str(item.get("value", "") or "")
+            if not value or value in seen_values:
+                continue
+            seen_values.add(value)
+            items.append(item)
 
     items.sort(key=lambda item: (item.get("provider", "").lower(), item.get("label", "").lower()))
     return JSONResponse({

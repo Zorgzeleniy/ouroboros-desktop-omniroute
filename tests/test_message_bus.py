@@ -141,3 +141,5 @@ def test_telegram_bridge_routes_web_messages_replies_actions_and_photos(monkeypa
     assert broadcasts[1]["task_id"] == "task-42"
     assert sent_actions == [("typing", 555)]
     assert sent_photos == [(b"img", "caption", "image/png", 555)]
+    photo_broadcast = next(item for item in broadcasts if item.get("type") == "photo")
+    assert photo_broadcast["ts"].endswith("+00:00")

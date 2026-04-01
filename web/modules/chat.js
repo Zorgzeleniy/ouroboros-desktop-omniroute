@@ -308,7 +308,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
     }
 
     function markAssistantReply(taskId = '') {
-        const resolvedTaskId = taskId || activeLiveGroupId || '';
+        const resolvedTaskId = taskId || '';
         if (!resolvedTaskId) return;
         const taskState = getTaskUiState(resolvedTaskId, false);
         if (!taskState) return;
@@ -742,21 +742,24 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                 const data = await resp.json();
                 const messages = Array.isArray(data.messages) ? data.messages : [];
                 for (const msg of messages) {
+                    const taskId = msg.task_id || '';
                     if (!includeUser && msg.role === 'user') continue;
                     if (msg.is_progress) {
-                        const taskState = getTaskUiState(msg.task_id || '', false);
-                        if (!taskState || taskState.completed) continue;
+                        if (!taskId) continue;
+                        const taskState = getTaskUiState(taskId, true);
+                        if (taskState.completed) continue;
                         updateLiveCardFromProgressMessage(msg);
                         continue;
                     }
                     if (msg.system_type === 'task_summary') {
-                        const taskState = getTaskUiState(msg.task_id || '', false);
-                        if (!taskState || taskState.completed) continue;
+                        if (!taskId) continue;
+                        const taskState = getTaskUiState(taskId, true);
+                        if (taskState.completed) continue;
                         appendTaskSummaryToLiveCard(msg);
                         continue;
                     }
-                    if (msg.role === 'assistant' || msg.role === 'system') {
-                        finishLiveCard(msg.task_id || activeLiveGroupId);
+                    if (taskId && (msg.role === 'assistant' || msg.role === 'system')) {
+                        finishLiveCard(taskId);
                     }
                     addMessage(msg.text, msg.role, !!msg.markdown, msg.ts || null, false, {
                         systemType: msg.system_type || '',
@@ -764,7 +767,7 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                         senderLabel: msg.sender_label || '',
                         senderSessionId: msg.sender_session_id || '',
                         clientMessageId: msg.client_message_id || '',
-                        taskId: msg.task_id || '',
+                        taskId,
                     });
                 }
                 historyLoaded = true;
@@ -960,23 +963,23 @@ export function initChat({ ws, state, updateUnreadBadge }) {
 
         if (msg.role === 'assistant' || msg.role === 'system') {
             hideTyping();
-            const taskId = msg.task_id || activeLiveGroupId || '';
+            const explicitTaskId = msg.task_id || '';
             if (msg.is_progress) {
                 updateLiveCardFromProgressMessage(msg);
                 return;
             }
             if (msg.system_type === 'task_summary') {
                 appendTaskSummaryToLiveCard(msg);
-                markAssistantReply(taskId);
+                markAssistantReply(explicitTaskId);
                 incrementUnreadIfNeeded();
                 return;
             }
-            finishLiveCard(taskId);
-            markAssistantReply(taskId);
+            if (explicitTaskId) finishLiveCard(explicitTaskId);
+            markAssistantReply(explicitTaskId);
             addMessage(msg.content, msg.role, msg.markdown, msg.ts || null, false, {
                 systemType: msg.system_type || '',
                 source: msg.source || '',
-                taskId,
+                taskId: explicitTaskId,
             });
             incrementUnreadIfNeeded();
         }

@@ -21,7 +21,7 @@ def test_chat_progress_updates_route_into_live_card():
     assert "if (msg.is_progress) {" in source
     assert "updateLiveCardFromProgressMessage(msg);" in source
     assert "appendTaskSummaryToLiveCard(msg);" in source
-    assert "finishLiveCard(msg.task_id || activeLiveGroupId);" in source
+    assert "if (explicitTaskId) finishLiveCard(explicitTaskId);" in source
     assert "ws.on('log', (msg) => {" in source
     assert "updateLiveCardFromLogEvent(msg.data);" in source
     assert "if (msg.is_progress) {" in source
@@ -40,8 +40,9 @@ def test_chat_progress_updates_route_into_live_card():
     assert "scheduleTaskUiCleanup(taskState, 30000);" in source
     assert "if (taskState.completed && !isTerminalTaskPhase(summary.phase || '')) {" in source
     assert "if (record.finished && !isTerminalTaskPhase(nextPhase)) {" in source
-    assert "const taskState = getTaskUiState(msg.task_id || '', false);" in source
-    assert "if (!taskState || taskState.completed) continue;" in source
+    assert "const taskId = msg.task_id || '';" in source
+    assert "const taskState = getTaskUiState(taskId, true);" in source
+    assert "if (taskState.completed) continue;" in source
     assert "const wasFinished = record.finished;" in source
     assert "const justFinished = record.finished && !wasFinished;" in source
     assert "if (justFinished) {" in source
@@ -93,6 +94,7 @@ def test_dashboard_and_chat_only_poll_state_when_active():
     assert "state.activePage !== 'chat'" in chat_source
     assert "state.activePage !== 'dashboard'" in dash_source
     assert "cache: 'no-store'" in dash_source
+    assert "Dashboard unavailable:" in dash_source
 
 
 def test_chat_history_replays_task_summaries_into_live_cards():
@@ -100,6 +102,7 @@ def test_chat_history_replays_task_summaries_into_live_cards():
     chat_source = _read("web/modules/chat.js")
 
     assert '"task_id": str(entry.get("task_id", ""))' in history_source
+    assert "const taskId = msg.task_id || '';" in chat_source
     assert "appendTaskSummaryToLiveCard(msg);" in chat_source
-    assert "taskId: msg.task_id || ''" in chat_source
+    assert "taskId," in chat_source
     assert "if (role !== 'user' && !opts.isProgress && opts.taskId) {" in chat_source

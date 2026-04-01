@@ -903,7 +903,7 @@ class LLMClient:
             if role == "tool":
                 tool_use_id = str(msg.get("tool_call_id") or "")
                 if not tool_use_id:
-                    continue
+                    raise ValueError("Anthropic direct tool result is missing tool_call_id.")
                 self._coalesce_anthropic_message(
                     anthropic_messages,
                     "user",
@@ -1132,23 +1132,23 @@ class LLMClient:
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}
 
+        if not usage.get("cached_tokens"):
+            prompt_details = usage.get("prompt_tokens_details") or {}
+            if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
+                usage["cached_tokens"] = int(prompt_details["cached_tokens"])
+
+        if not usage.get("cache_write_tokens"):
+            prompt_details_for_write = usage.get("prompt_tokens_details") or {}
+            if isinstance(prompt_details_for_write, dict):
+                cache_write = (
+                    prompt_details_for_write.get("cache_write_tokens")
+                    or prompt_details_for_write.get("cache_creation_tokens")
+                    or prompt_details_for_write.get("cache_creation_input_tokens")
+                )
+                if cache_write:
+                    usage["cache_write_tokens"] = int(cache_write)
+
         if target.get("supports_openrouter_extensions"):
-            if not usage.get("cached_tokens"):
-                prompt_details = usage.get("prompt_tokens_details") or {}
-                if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
-                    usage["cached_tokens"] = int(prompt_details["cached_tokens"])
-
-            if not usage.get("cache_write_tokens"):
-                prompt_details_for_write = usage.get("prompt_tokens_details") or {}
-                if isinstance(prompt_details_for_write, dict):
-                    cache_write = (
-                        prompt_details_for_write.get("cache_write_tokens")
-                        or prompt_details_for_write.get("cache_creation_tokens")
-                        or prompt_details_for_write.get("cache_creation_input_tokens")
-                    )
-                    if cache_write:
-                        usage["cache_write_tokens"] = int(cache_write)
-
             if not usage.get("cost"):
                 gen_id = resp_dict.get("id") or ""
                 if gen_id:
@@ -1158,6 +1158,18 @@ class LLMClient:
 
         usage["provider"] = str(target.get("provider") or "openrouter")
         usage["resolved_model"] = str(target.get("usage_model") or target.get("resolved_model") or "")
+        if not usage.get("cost") and (usage.get("prompt_tokens") or usage.get("completion_tokens")):
+            from ouroboros.pricing import estimate_cost
+
+            estimated_cost = estimate_cost(
+                usage["resolved_model"],
+                int(usage.get("prompt_tokens") or 0),
+                int(usage.get("completion_tokens") or 0),
+                int(usage.get("cached_tokens") or 0),
+                int(usage.get("cache_write_tokens") or 0),
+            )
+            if estimated_cost:
+                usage["cost"] = estimated_cost
 
         return msg, usage
 

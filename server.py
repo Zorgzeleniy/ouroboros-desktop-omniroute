@@ -32,8 +32,16 @@ import uvicorn
 from ouroboros import get_version
 from ouroboros.file_browser_api import file_browser_routes
 from ouroboros.model_catalog_api import api_model_catalog
+from ouroboros.server_control import (
+    execute_panic_stop as _execute_panic_stop_impl,
+    restart_current_process as _restart_current_process_impl,
+)
 from ouroboros.server_history_api import make_chat_history_endpoint, make_cost_breakdown_endpoint
-from ouroboros.server_auth import NetworkAuthGate, validate_network_auth_configuration
+from ouroboros.server_auth import (
+    NetworkAuthGate,
+    get_network_auth_startup_warning,
+    validate_network_auth_configuration,
+)
 from ouroboros.server_entrypoint import find_free_port, parse_server_args, write_port_file
 from ouroboros.server_web import NoCacheStaticFiles, make_index_page, resolve_web_dir
 
@@ -151,13 +159,7 @@ def _merge_settings_payload(current: Dict[str, Any], body: Dict[str, Any]) -> Di
 
 
 def _restart_current_process(host: str, port: int) -> None:
-    env = os.environ.copy()
-    env["OUROBOROS_SERVER_HOST"] = str(host)
-    env["OUROBOROS_SERVER_PORT"] = str(port)
-    env.pop("OUROBOROS_MANAGED_BY_LAUNCHER", None)
-    argv = [sys.executable, *sys.argv]
-    log.info("Re-executing direct server mode on %s:%d", host, port)
-    os.execvpe(sys.executable, argv, env)
+    _restart_current_process_impl(host, port, repo_dir=REPO_DIR, log=log)
 
 
 # ---------------------------------------------------------------------------
@@ -562,55 +564,13 @@ def _request_restart_exit() -> None:
 
 
 def _execute_panic_stop(consciousness, kill_workers_fn) -> None:
-    """Full emergency stop: kill everything, write panic flag, hard-exit.
-
-    This is intentionally harsh — os._exit() bypasses atexit handlers.
-    All critical cleanup is done manually before the exit call.
-    """
-    log.critical("PANIC STOP initiated.")
-    try:
-        consciousness.stop()
-    except Exception:
-        pass
-
-    try:
-        from supervisor.state import load_state, save_state
-        st = load_state()
-        st["evolution_mode_enabled"] = False
-        st["bg_consciousness_enabled"] = False
-        save_state(st)
-    except Exception:
-        pass
-
-    # Write panic flag to prevent auto-resume on next manual launch
-    try:
-        panic_flag = DATA_DIR / "state" / "panic_stop.flag"
-        panic_flag.parent.mkdir(parents=True, exist_ok=True)
-        panic_flag.write_text("panic", encoding="utf-8")
-    except Exception:
-        pass
-
-    # Kill local model server if running
-    try:
-        from ouroboros.local_model import get_manager
-        get_manager().stop_server()
-    except Exception:
-        pass
-
-    # Kill all tracked subprocess process groups (claude CLI, shell, etc.)
-    try:
-        from ouroboros.tools.shell import kill_all_tracked_subprocesses
-        kill_all_tracked_subprocesses()
-    except Exception:
-        pass
-
-    try:
-        kill_workers_fn(force=True)
-    except Exception:
-        pass
-
-    log.critical("PANIC STOP complete — hard exit with code %d.", PANIC_EXIT_CODE)
-    os._exit(PANIC_EXIT_CODE)
+    _execute_panic_stop_impl(
+        consciousness,
+        kill_workers_fn,
+        data_dir=DATA_DIR,
+        panic_exit_code=PANIC_EXIT_CODE,
+        log=log,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -745,6 +705,11 @@ async def api_settings_post(request: Request) -> JSONResponse:
         body = await request.json()
         current = _merge_settings_payload(load_settings(), body)
         current, provider_defaults_changed, provider_default_keys = apply_runtime_provider_defaults(current)
+        if str(current.get("LOCAL_MODEL_SOURCE", "") or "").strip() and not has_supervisor_provider(current):
+            return JSONResponse(
+                {"error": "Local-only setups must route at least one model to the local runtime."},
+                status_code=400,
+            )
         save_settings(current)
         _apply_settings_to_env(current)
         _start_supervisor_if_needed(current)
@@ -808,7 +773,7 @@ async def api_command(request: Request) -> JSONResponse:
         if cmd:
             from supervisor.message_bus import get_bridge
             bridge = get_bridge()
-            bridge.ui_send(cmd)
+            bridge.ui_send(cmd, broadcast=False)
         return JSONResponse({"status": "ok"})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -994,6 +959,9 @@ app = NetworkAuthGate(Starlette(routes=routes, lifespan=lifespan))
 # ---------------------------------------------------------------------------
 def main() -> int:
     args = parse_server_args(DEFAULT_HOST, DEFAULT_PORT)
+    auth_warning = get_network_auth_startup_warning(args.host)
+    if auth_warning:
+        log.warning(auth_warning)
     auth_error = validate_network_auth_configuration(args.host)
     if auth_error:
         log.error(auth_error)

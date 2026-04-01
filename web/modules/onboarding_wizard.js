@@ -184,6 +184,9 @@
         if (!openrouterKey && !openaiKey && !anthropicKey && !localSource) {
             return 'Enter at least one remote key or a local model source before continuing.';
         }
+        if (localSource && !openrouterKey && !openaiKey && !anthropicKey && trim(state.localRoutingMode) === 'cloud') {
+            return 'Local-only setups must route at least one model to the local runtime.';
+        }
         if (localSource && localSource.includes('/') && !isLocalFilesystemSource(localSource) && !localFilename) {
             return 'Local HuggingFace sources need a GGUF filename.';
         }
@@ -704,7 +707,16 @@
         if (openaiInput) openaiInput.addEventListener('input', () => { state.openaiKey = openaiInput.value; state.error = ''; syncCurrentStepActionState(); });
         if (anthropicInput) anthropicInput.addEventListener('input', () => { state.anthropicKey = anthropicInput.value; state.error = ''; syncCurrentStepActionState(); });
         if (localPreset) localPreset.addEventListener('change', () => { applyPresetSelection(localPreset.value); state.error = ''; render(); });
-        if (localSource) localSource.addEventListener('input', () => { state.localSource = localSource.value; state.localPreset = state.localPreset || 'custom'; state.localSourceOpen = true; state.error = ''; syncCurrentStepActionState(); });
+        if (localSource) localSource.addEventListener('input', () => {
+            state.localSource = localSource.value;
+            state.localPreset = state.localPreset || 'custom';
+            state.localSourceOpen = true;
+            if (trim(state.localSource) && activeProviderProfile() === 'local' && trim(state.localRoutingMode) === 'cloud') {
+                state.localRoutingMode = 'all';
+            }
+            state.error = '';
+            syncCurrentStepActionState();
+        });
         if (localFilename) localFilename.addEventListener('input', () => { state.localFilename = localFilename.value; state.localPreset = state.localPreset || 'custom'; state.error = ''; syncCurrentStepActionState(); });
         if (localContext) localContext.addEventListener('input', () => { state.localContextLength = localContext.value; state.error = ''; syncCurrentStepActionState(); });
         if (localGpuLayers) localGpuLayers.addEventListener('input', () => { state.localGpuLayers = localGpuLayers.value; state.error = ''; syncCurrentStepActionState(); });

@@ -292,6 +292,8 @@ def prepare_onboarding_settings(data: dict, current_settings: dict) -> Tuple[dic
     }.get(local_routing_mode, (False, False, False, False))
     if not has_local:
         use_local = (False, False, False, False)
+    if has_local and not openrouter_key and not openai_key and not anthropic_key and not any(use_local):
+        return {}, "Local-only setups must route at least one model to the local runtime."
 
     prepared = dict(current_settings)
     prepared.update(models)

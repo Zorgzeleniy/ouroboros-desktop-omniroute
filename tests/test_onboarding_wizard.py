@@ -63,6 +63,18 @@ def test_prepare_onboarding_settings_accepts_anthropic_only_setup():
     assert prepared["OUROBOROS_MODEL"] == "anthropic::claude-opus-4-6"
 
 
+def test_prepare_onboarding_settings_rejects_local_only_cloud_routing():
+    payload = _base_payload()
+    payload["LOCAL_MODEL_SOURCE"] = "Qwen/Qwen2.5-7B-Instruct-GGUF"
+    payload["LOCAL_MODEL_FILENAME"] = "qwen2.5-7b-instruct-q3_k_m.gguf"
+    payload["LOCAL_ROUTING_MODE"] = "cloud"
+
+    prepared, error = prepare_onboarding_settings(payload, {})
+
+    assert prepared == {}
+    assert error == "Local-only setups must route at least one model to the local runtime."
+
+
 def test_prepare_onboarding_settings_sets_all_local_routes():
     payload = _base_payload()
     payload["LOCAL_MODEL_SOURCE"] = "Qwen/Qwen2.5-7B-Instruct-GGUF"

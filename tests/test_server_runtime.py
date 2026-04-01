@@ -5,13 +5,14 @@ from ouroboros.server_runtime import (
 )
 
 
-def test_has_startup_ready_provider_accepts_any_remote_key_or_local_source():
+def test_has_startup_ready_provider_accepts_any_remote_key_or_local_routing():
     assert has_startup_ready_provider({"OPENROUTER_API_KEY": "sk-or-test"})
     assert has_startup_ready_provider({"OPENAI_API_KEY": "sk-openai"})
     assert has_startup_ready_provider({"ANTHROPIC_API_KEY": "sk-ant"})
     assert has_startup_ready_provider({"OPENAI_COMPATIBLE_API_KEY": "compat-key"})
     assert has_startup_ready_provider({"CLOUDRU_FOUNDATION_MODELS_API_KEY": "cloudru-key"})
-    assert has_startup_ready_provider({"LOCAL_MODEL_SOURCE": "Qwen/Qwen2.5-7B-Instruct-GGUF"})
+    assert has_startup_ready_provider({"USE_LOCAL_MAIN": True})
+    assert not has_startup_ready_provider({"LOCAL_MODEL_SOURCE": "Qwen/Qwen2.5-7B-Instruct-GGUF"})
 
 
 def test_has_supervisor_provider_requires_remote_credentials_or_local_routing():

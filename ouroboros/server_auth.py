@@ -47,6 +47,17 @@ def validate_network_auth_configuration(bind_host: str) -> str | None:
     return None
 
 
+def get_network_auth_startup_warning(bind_host: str) -> str | None:
+    if is_loopback_host(bind_host):
+        return None
+    if get_configured_network_password():
+        return None
+    return (
+        "Server is binding to a non-loopback host without OUROBOROS_NETWORK_PASSWORD. "
+        "Access will stay open to the network until a password is configured."
+    )
+
+
 def _headers_map(scope: Scope) -> dict[str, str]:
     return {
         key.decode("latin-1").lower(): value.decode("latin-1")

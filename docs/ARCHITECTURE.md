@@ -152,6 +152,7 @@ Shown when `settings.json` does not contain any supported remote provider key an
 - The wizard is multi-step and provider-aware: it starts with a single access step that accepts multiple remote keys plus optional local-model setup, then shows visible model defaults, a dedicated review-mode step, a dedicated budget step, and the final summary before save.
 - The wizard blocks progression if nothing runnable is configured.
 - When OpenRouter is absent and official OpenAI is the only configured remote runtime, untouched default model values are auto-remapped to `openai::gpt-5.4` / `openai::gpt-5.4-mini` so first-run startup does not strand the app on OpenRouter-only defaults.
+- `web_search` uses the official OpenAI Responses API only. It requires `OPENAI_API_KEY` and treats any non-empty `OPENAI_BASE_URL` as an incompatible custom runtime configuration rather than a fallback.
 - OpenAI-compatible and Cloud.ru remain explicit model-selection flows from the full Settings page because there is no single safe universal default model ID for those providers.
 - Closing the wizard without saving is non-fatal: the main app still launches and the user can finish configuration in Settings.
 
@@ -568,7 +569,7 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 |-----|---------|-------------|
 | OPENROUTER_API_KEY | "" | Optional. Default multi-model router key |
 | OPENAI_API_KEY | "" | Optional. Official OpenAI provider key (runtime + web search) |
-| OPENAI_BASE_URL | "" | Optional legacy OpenAI-compatible base URL fallback |
+| OPENAI_BASE_URL | "" | Optional custom/legacy OpenAI-compatible runtime base URL. Keep empty for official OpenAI `web_search`. |
 | OPENAI_COMPATIBLE_API_KEY | "" | Optional. Dedicated OpenAI-compatible provider key |
 | OPENAI_COMPATIBLE_BASE_URL | "" | Optional. Dedicated OpenAI-compatible provider base URL |
 | CLOUDRU_FOUNDATION_MODELS_API_KEY | "" | Optional. Cloud.ru Foundation Models provider key |
@@ -577,7 +578,7 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 | TELEGRAM_BOT_TOKEN | "" | Optional. Enables Telegram bridge polling/sending |
 | TELEGRAM_CHAT_ID | "" | Optional. Pin replies to a specific Telegram chat |
 | TELEGRAM_ALLOWED_CHAT_IDS | "" | Optional legacy fallback list of Telegram chat ids |
-| OUROBOROS_NETWORK_PASSWORD | "" | Optional. Enables non-loopback auth gate when set |
+| OUROBOROS_NETWORK_PASSWORD | "" | Optional. Enables the non-loopback auth gate when set; empty still allows open bind, but startup logs a warning |
 | OUROBOROS_MODEL | anthropic/claude-opus-4.6 | Main reasoning model |
 | OUROBOROS_MODEL_CODE | anthropic/claude-opus-4.6 | Code editing model |
 | OUROBOROS_MODEL_LIGHT | anthropic/claude-sonnet-4.6 | Fast/cheap model (safety, consciousness) |
@@ -586,7 +587,7 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 | OUROBOROS_MAX_WORKERS | 5 | Worker process pool size |
 | TOTAL_BUDGET | 10.0 | Total budget in USD |
 | OUROBOROS_PER_TASK_COST_USD | 20.0 | Per-task soft threshold in USD |
-| OUROBOROS_WEBSEARCH_MODEL | gpt-5.2 | OpenAI model for web_search tool |
+| OUROBOROS_WEBSEARCH_MODEL | gpt-5.2 | Official OpenAI Responses model for `web_search` when `OPENAI_BASE_URL` is empty |
 | OUROBOROS_REVIEW_MODELS | openai/gpt-5.4,google/gemini-3.1-pro-preview,anthropic/claude-opus-4.6 | Comma-separated OpenRouter model IDs for pre-commit review (min 2 for quorum) |
 | OUROBOROS_REVIEW_ENFORCEMENT | blocking | Pre-commit review enforcement: `advisory` or `blocking` |
 | OUROBOROS_EFFORT_TASK | medium | Reasoning effort for task/chat: none, low, medium, high |

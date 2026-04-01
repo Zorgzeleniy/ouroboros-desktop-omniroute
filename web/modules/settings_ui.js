@@ -134,7 +134,7 @@ export function renderSettingsPage() {
                                     <input id="s-openai-compatible-base-url" placeholder="https://provider.example/v1">
                                 </div>
                             </div>
-                            <div class="settings-inline-note">Legacy <code>OPENAI_BASE_URL</code> is still respected as fallback for existing installs.</div>
+                            <div class="settings-inline-note">Use this card for custom base URLs. Built-in web search only works with the official OpenAI Responses API, so keep <code>OPENAI_BASE_URL</code> empty when you want <code>web_search</code>.</div>
                         `,
                     })}
                     ${providerCard({
@@ -180,7 +180,7 @@ export function renderSettingsPage() {
                             label: 'Network Password (optional)',
                             placeholder: 'Leave blank to keep the network surface open',
                         })}</div>
-                        <div class="settings-inline-note">Adds a password wall only for non-localhost app and API access. Leave it blank if you use Ouroboros only on this machine or inside a trusted private network.</div>
+                        <div class="settings-inline-note">Adds a password wall only for non-localhost app and API access. Leave it blank if you use Ouroboros only on this machine or inside a trusted private network. External binds still start without it, but startup logs a warning.</div>
                     </div>
                 </section>
 
@@ -351,7 +351,7 @@ export function renderSettingsPage() {
                             <div class="form-field">
                                 <label>Web Search Model</label>
                                 <input id="s-websearch-model" placeholder="gpt-5.2">
-                                <div class="settings-inline-note">OpenAI model used by the built-in web search tool when no per-call override is supplied.</div>
+                                <div class="settings-inline-note">OpenAI model used by <code>web_search</code> when the official OpenAI Responses API is configured. This requires <code>OPENAI_API_KEY</code> and an empty <code>OPENAI_BASE_URL</code>.</div>
                             </div>
                             <div class="form-field">
                                 <label>Review Enforcement</label>

@@ -17,6 +17,12 @@ def test_spec_bundles_assets_and_icon():
 
 
 def test_launcher_does_not_exclude_assets_on_bootstrap():
-    source = _read("launcher.py")
-    assert '"python-standalone", "assets"' not in source
-    assert '("server.py", "web", "assets")' in source
+    launcher_source = _read("launcher.py")
+    bootstrap_source = _read("ouroboros/launcher_bootstrap.py")
+    assert '"python-standalone", "assets"' not in launcher_source
+    assert "from ouroboros.launcher_bootstrap import" in launcher_source
+    assert "MANAGED_BUNDLE_PATHS = (" in bootstrap_source
+    assert '"server.py"' in bootstrap_source
+    assert '"web"' in bootstrap_source
+    assert '"webview"' in bootstrap_source
+    assert '"assets"' in bootstrap_source

@@ -497,7 +497,7 @@ class LocalChatBridge:
             "image_base64": b64_str,
             "mime": mime,
             "caption": caption,
-            "ts": datetime.datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         self._outbox.put(msg)
         if self._broadcast_fn:

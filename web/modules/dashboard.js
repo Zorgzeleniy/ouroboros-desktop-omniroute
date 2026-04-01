@@ -105,7 +105,11 @@ export function initDashboard({ ws, state }) {
                 data?.evolution_state?.detail || 'Evolution mode is off.';
             document.getElementById('dash-bg-detail').textContent =
                 data?.bg_consciousness_state?.detail || 'Background consciousness is off.';
-        } catch {}
+        } catch (error) {
+            const message = error?.message ? `Dashboard unavailable: ${error.message}` : 'Dashboard unavailable.';
+            document.getElementById('dash-evolution-detail').textContent = message;
+            document.getElementById('dash-bg-detail').textContent = 'Waiting for /api/state recovery.';
+        }
     }
 
     updateDashboard(true);

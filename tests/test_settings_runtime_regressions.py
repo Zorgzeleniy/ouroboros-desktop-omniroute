@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import json
 import pathlib
@@ -19,8 +20,10 @@ def _reload_server(monkeypatch, tmp_path):
     monkeypatch.setenv("OUROBOROS_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OUROBOROS_SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.delenv("OUROBOROS_MANAGED_BY_LAUNCHER", raising=False)
+    import ouroboros.config as config_module
     import server as server_module
 
+    importlib.reload(config_module)
     return importlib.reload(server_module)
 
 
@@ -90,9 +93,11 @@ def test_merge_settings_payload_allows_explicit_secret_clear(monkeypatch, tmp_pa
     assert merged["OPENAI_API_KEY"] == ""
 
 
-def test_restart_current_process_reexecs_in_place(monkeypatch, tmp_path):
+def test_restart_current_process_falls_back_to_spawn_on_exec_failure(monkeypatch, tmp_path):
     server_module = _reload_server(monkeypatch, tmp_path)
     called = {}
+    spawned = {}
+    import ouroboros.server_control as server_control_module
 
     def _fake_execvpe(executable, argv, env):
         called["executable"] = executable
@@ -100,16 +105,78 @@ def test_restart_current_process_reexecs_in_place(monkeypatch, tmp_path):
         called["env"] = env
         raise RuntimeError("stop")
 
-    monkeypatch.setattr(server_module.os, "execvpe", _fake_execvpe)
+    def _fake_popen(argv, env=None, cwd=None):
+        spawned["argv"] = argv
+        spawned["env"] = env
+        spawned["cwd"] = cwd
+        return object()
 
-    with pytest.raises(RuntimeError, match="stop"):
-        server_module._restart_current_process("127.0.0.1", 9032)
+    monkeypatch.setattr(server_control_module.os, "execvpe", _fake_execvpe)
+    monkeypatch.setattr(server_control_module.subprocess, "Popen", _fake_popen)
+
+    server_module._restart_current_process("127.0.0.1", 9032)
 
     assert called["executable"] == sys.executable
     assert called["argv"][0] == sys.executable
     assert called["env"]["OUROBOROS_SERVER_HOST"] == "127.0.0.1"
     assert called["env"]["OUROBOROS_SERVER_PORT"] == "9032"
     assert "OUROBOROS_MANAGED_BY_LAUNCHER" not in called["env"]
+    assert spawned["argv"] == called["argv"]
+    assert spawned["env"]["OUROBOROS_SERVER_PORT"] == "9032"
+    assert spawned["cwd"] == str(server_module.REPO_DIR)
+
+
+def test_api_settings_post_rejects_local_only_unrouted_runtime(monkeypatch, tmp_path):
+    for key in (
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "CLOUDRU_FOUNDATION_MODELS_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    server_module = _reload_server(monkeypatch, tmp_path)
+
+    class _Request:
+        async def json(self):
+            return {
+                "LOCAL_MODEL_SOURCE": "Qwen/Qwen2.5-7B-Instruct-GGUF",
+                "LOCAL_MODEL_FILENAME": "qwen2.5-7b-instruct-q3_k_m.gguf",
+                "USE_LOCAL_MAIN": False,
+                "USE_LOCAL_CODE": False,
+                "USE_LOCAL_LIGHT": False,
+                "USE_LOCAL_FALLBACK": False,
+            }
+
+    response = asyncio.run(server_module.api_settings_post(_Request()))
+    payload = json.loads(response.body.decode("utf-8"))
+
+    assert response.status_code == 400
+    assert payload["error"] == "Local-only setups must route at least one model to the local runtime."
+
+
+def test_api_command_uses_local_enqueue_semantics(monkeypatch, tmp_path):
+    server_module = _reload_server(monkeypatch, tmp_path)
+    captured = {}
+    import supervisor.message_bus as message_bus
+
+    class _Bridge:
+        def ui_send(self, text, **kwargs):
+            captured["text"] = text
+            captured["kwargs"] = kwargs
+
+    class _Request:
+        async def json(self):
+            return {"cmd": "status"}
+
+    monkeypatch.setattr(message_bus, "get_bridge", lambda: _Bridge())
+
+    response = asyncio.run(server_module.api_command(_Request()))
+    payload = json.loads(response.body.decode("utf-8"))
+
+    assert response.status_code == 200
+    assert payload == {"status": "ok"}
+    assert captured == {"text": "status", "kwargs": {"broadcast": False}}
 
 
 def test_launcher_marks_server_as_managed():

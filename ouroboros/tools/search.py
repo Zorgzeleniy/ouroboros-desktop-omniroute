@@ -40,25 +40,11 @@ def _estimate_openai_cost(model: str, input_tokens: int, output_tokens: int) -> 
 
 
 def _resolve_openai_client_settings() -> tuple[str, str | None, str, str]:
-    """Choose OpenAI-compatible credentials with legacy fallback behavior."""
+    """Return credentials only for official OpenAI Responses web search."""
     official_key = (os.environ.get("OPENAI_API_KEY", "") or "").strip()
     legacy_base_url = (os.environ.get("OPENAI_BASE_URL", "") or "").strip()
-    compatible_key = (os.environ.get("OPENAI_COMPATIBLE_API_KEY", "") or "").strip()
-    compatible_base_url = (os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "") or "").strip()
-    cloudru_key = (os.environ.get("CLOUDRU_FOUNDATION_MODELS_API_KEY", "") or "").strip()
-    cloudru_base_url = (
-        os.environ.get("CLOUDRU_FOUNDATION_MODELS_BASE_URL", "") or ""
-    ).strip() or "https://foundation-models.api.cloud.ru/v1"
 
     if official_key and not legacy_base_url:
-        return official_key, None, "openai", "openai"
-    if cloudru_key:
-        return cloudru_key, cloudru_base_url, "cloudru", "cloudru_foundation_models"
-    if compatible_key:
-        return compatible_key, (compatible_base_url or None), "openai-compatible", "openai_compatible"
-    if official_key and legacy_base_url:
-        return official_key, legacy_base_url, "openai-compatible", "openai_compatible"
-    if official_key:
         return official_key, None, "openai", "openai"
     return "", None, "openai", "openai"
 
@@ -74,9 +60,8 @@ def _web_search(
     if not api_key:
         return json.dumps({
             "error": (
-                "No supported web-search provider key is configured. "
-                "Set OPENAI_API_KEY, OPENAI_COMPATIBLE_API_KEY, or "
-                "CLOUDRU_FOUNDATION_MODELS_API_KEY in Settings."
+                "web_search requires the official OpenAI Responses API. "
+                "Set OPENAI_API_KEY and leave OPENAI_BASE_URL empty."
             ),
         })
 

@@ -25,6 +25,12 @@ import time
 from typing import Optional
 
 from ouroboros import get_version
+from ouroboros.launcher_bootstrap import (
+    BootstrapContext,
+    bootstrap_repo as _bootstrap_repo,
+    check_git as _check_git,
+    install_deps as _install_deps_impl,
+)
 from ouroboros.compat import (
     IS_WINDOWS, IS_MACOS,
     embedded_python_candidates, kill_process_on_port, force_kill_pid,
@@ -207,247 +213,36 @@ def _prepare_windows_webview_runtime() -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
-def check_git() -> bool:
-    if shutil.which("git") is not None:
-        return True
-    if IS_WINDOWS:
-        for _candidate in (
-            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "cmd", "git.exe"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git", "cmd", "git.exe"),
-        ):
-            if os.path.isfile(_candidate):
-                git_dir = os.path.dirname(_candidate)
-                os.environ["PATH"] = git_dir + ";" + os.environ.get("PATH", "")
-                return True
-    return False
-
-
-def _sync_core_files() -> None:
-    """Sync core files from bundle to REPO_DIR on every launch."""
+def _bundle_dir() -> pathlib.Path:
     if getattr(sys, "frozen", False):
-        bundle_dir = pathlib.Path(sys._MEIPASS)
-    else:
-        bundle_dir = pathlib.Path(__file__).parent
-
-    sync_paths = [
-        "ouroboros/safety.py",
-        "prompts/SAFETY.md",
-        "ouroboros/tools/registry.py",
-    ]
-    for rel in sync_paths:
-        src = bundle_dir / rel
-        dst = REPO_DIR / rel
-        if src.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-    log.info("Synced %d core files to %s", len(sync_paths), REPO_DIR)
+        return pathlib.Path(sys._MEIPASS)
+    return pathlib.Path(__file__).parent
 
 
-def _commit_synced_files() -> None:
-    """Commit sync'd safety files so git reset --hard doesn't revert them."""
-    try:
-        for rel in ["ouroboros/safety.py", "prompts/SAFETY.md", "ouroboros/tools/registry.py"]:
-            _hidden_run(["git", "add", rel], cwd=str(REPO_DIR), check=False, capture_output=True)
-        status = _hidden_run(
-            ["git", "status", "--porcelain", "--",
-             "ouroboros/safety.py", "prompts/SAFETY.md", "ouroboros/tools/registry.py"],
-            cwd=str(REPO_DIR), capture_output=True, text=True,
-        )
-        if status.stdout.strip():
-            _hidden_run(
-                ["git", "commit", "-m", "safety-sync: restore protected files from bundle"],
-                cwd=str(REPO_DIR), check=False, capture_output=True,
-            )
-            log.info("Committed synced safety files.")
-    except Exception as e:
-        log.warning("Failed to commit synced files: %s", e)
+def _bootstrap_context() -> BootstrapContext:
+    return BootstrapContext(
+        bundle_dir=_bundle_dir(),
+        repo_dir=REPO_DIR,
+        data_dir=DATA_DIR,
+        settings_path=SETTINGS_PATH,
+        embedded_python=EMBEDDED_PYTHON,
+        app_version=APP_VERSION,
+        hidden_run=_hidden_run,
+        save_settings=save_settings,
+        log=log,
+    )
 
 
-_REPO_GITIGNORE = """\
-# Secrets
-.env
-.env.*
-*.key
-*.pem
-
-# IDE
-.cursor/
-.vscode/
-.idea/
-
-# Python bytecode
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-
-# Build artifacts
-dist/
-build/
-.pytest_cache/
-.mypy_cache/
-
-# Native / binary artifacts (PyInstaller, compiled extensions)
-*.so
-*.dylib
-*.dll
-*.dist-info/
-base_library.zip
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Release artifacts
-.create_release.py
-.release_notes.md
-python-standalone/
-"""
-
-
-def _ensure_repo_gitignore(repo_dir: pathlib.Path) -> None:
-    """Write .gitignore if missing — MUST run before any git add -A."""
-    gi = repo_dir / ".gitignore"
-    if not gi.exists():
-        gi.write_text(_REPO_GITIGNORE, encoding="utf-8")
+def check_git() -> bool:
+    return _check_git(IS_WINDOWS)
 
 
 def bootstrap_repo() -> None:
-    """Copy bundled codebase to REPO_DIR on first run, sync core files always."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if REPO_DIR.exists() and (REPO_DIR / "server.py").exists():
-        _sync_core_files()
-        _commit_synced_files()
-        return
-
-    needs_full_bootstrap = not REPO_DIR.exists()
-    log.info("Bootstrapping repository to %s (full=%s)", REPO_DIR, needs_full_bootstrap)
-
-    if getattr(sys, "frozen", False):
-        bundle_dir = pathlib.Path(sys._MEIPASS)
-    else:
-        bundle_dir = pathlib.Path(__file__).parent
-
-    if needs_full_bootstrap:
-        shutil.copytree(bundle_dir, REPO_DIR, ignore=shutil.ignore_patterns(
-            "repo", "data", "build", "dist", ".git", "__pycache__", "venv", ".venv",
-            "Ouroboros.spec", "run_demo.sh", "demo_app.py", "app.py", "launcher.py",
-            "colab_launcher.py", "colab_bootstrap_shim.py",
-            "python-standalone",
-            "*.pyc", "*.pyo", "*.so", "*.dylib", "*.dll",
-            "*.dist-info", "base_library.zip",
-        ))
-    else:
-        for item in ("server.py", "web", "assets"):
-            src = bundle_dir / item
-            dst = REPO_DIR / item
-            if src.exists() and not dst.exists():
-                if src.is_dir():
-                    shutil.copytree(src, dst)
-                else:
-                    shutil.copy2(src, dst)
-
-    # Initialize git repo if new
-    if needs_full_bootstrap:
-        _ensure_repo_gitignore(REPO_DIR)
-        try:
-            _hidden_run(["git", "init"], cwd=str(REPO_DIR), check=True, capture_output=True)
-            _hidden_run(["git", "config", "user.name", "Ouroboros"], cwd=str(REPO_DIR), check=True, capture_output=True)
-            _hidden_run(["git", "config", "user.email", "ouroboros@local.mac"], cwd=str(REPO_DIR), check=True, capture_output=True)
-            _hidden_run(["git", "add", "-A"], cwd=str(REPO_DIR), check=True, capture_output=True)
-            _hidden_run(["git", "commit", "-m", "Initial commit from app bundle"], cwd=str(REPO_DIR), check=False, capture_output=True)
-            _hidden_run(["git", "branch", "-M", "ouroboros"], cwd=str(REPO_DIR), check=False, capture_output=True)
-            _hidden_run(["git", "branch", "ouroboros-stable"], cwd=str(REPO_DIR), check=False, capture_output=True)
-        except Exception as e:
-            log.error("Git init failed: %s", e)
-
-    # Generate world profile
-    try:
-        memory_dir = DATA_DIR / "memory"
-        memory_dir.mkdir(parents=True, exist_ok=True)
-        world_path = memory_dir / "WORLD.md"
-        if not world_path.exists():
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str(REPO_DIR)
-            _hidden_run(
-                [EMBEDDED_PYTHON, "-c",
-                 f"import sys; sys.path.insert(0, '{REPO_DIR}'); "
-                 f"from ouroboros.world_profiler import generate_world_profile; "
-                 f"generate_world_profile('{world_path}')"],
-                env=env, timeout=30, capture_output=True,
-            )
-    except Exception as e:
-        log.warning("World profile generation failed: %s", e)
-
-    # Migrate old settings if needed
-    _migrate_old_settings()
-
-    # Install dependencies
-    _install_deps()
-    log.info("Bootstrap complete.")
-
-
-def _migrate_old_settings() -> None:
-    """Migrate old-style env-only settings to settings.json for existing users."""
-    if SETTINGS_PATH.exists():
-        return
-
-    migrated = {}
-    env_keys = [
-        "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL",
-        "OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_BASE_URL",
-        "CLOUDRU_FOUNDATION_MODELS_API_KEY", "CLOUDRU_FOUNDATION_MODELS_BASE_URL",
-        "ANTHROPIC_API_KEY",
-        "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_ALLOWED_CHAT_IDS",
-        "OUROBOROS_NETWORK_PASSWORD", "OUROBOROS_FILE_BROWSER_DEFAULT",
-        "OUROBOROS_MODEL", "OUROBOROS_MODEL_CODE", "OUROBOROS_MODEL_LIGHT",
-        "OUROBOROS_MODEL_FALLBACK", "TOTAL_BUDGET", "OUROBOROS_MAX_WORKERS",
-        "OUROBOROS_SOFT_TIMEOUT_SEC", "OUROBOROS_HARD_TIMEOUT_SEC",
-        "GITHUB_TOKEN", "GITHUB_REPO",
-    ]
-    for key in env_keys:
-        val = os.environ.get(key, "")
-        if val:
-            try:
-                if key in ("TOTAL_BUDGET",):
-                    migrated[key] = float(val)
-                elif key in ("OUROBOROS_MAX_WORKERS", "OUROBOROS_SOFT_TIMEOUT_SEC", "OUROBOROS_HARD_TIMEOUT_SEC"):
-                    migrated[key] = int(val)
-                else:
-                    migrated[key] = val
-            except (ValueError, TypeError):
-                migrated[key] = val
-
-    # Also check for old settings.json in data/state/
-    old_settings = DATA_DIR / "state" / "settings.json"
-    if old_settings.exists():
-        try:
-            old = json.loads(old_settings.read_text(encoding="utf-8"))
-            for key in env_keys:
-                if key in old and key not in migrated:
-                    migrated[key] = old[key]
-        except Exception:
-            pass
-
-    if migrated:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        SETTINGS_PATH.write_text(json.dumps(migrated, indent=2), encoding="utf-8")
-        log.info("Migrated %d settings to %s", len(migrated), SETTINGS_PATH)
+    _bootstrap_repo(_bootstrap_context())
 
 
 def _install_deps() -> None:
-    """Install Python dependencies for the agent."""
-    req_file = REPO_DIR / "requirements.txt"
-    if not req_file.exists():
-        return
-    log.info("Installing agent dependencies...")
-    try:
-        _hidden_run(
-            [EMBEDDED_PYTHON, "-m", "pip", "install", "-q", "-r", str(req_file)],
-            timeout=300, capture_output=True,
-        )
-    except Exception as e:
-        log.warning("Dependency install failed: %s", e)
+    _install_deps_impl(_bootstrap_context())
 
 
 # ---------------------------------------------------------------------------
@@ -669,8 +464,7 @@ def agent_lifecycle_loop(port: int = AGENT_SERVER_PORT) -> None:
 
         if exit_code == RESTART_EXIT_CODE:
             log.info("Agent requested restart (exit code 42). Restarting...")
-            _sync_core_files()
-            _commit_synced_files()
+            _sync_existing_repo_from_bundle()
             _install_deps()
             _kill_stale_on_port(port)
             continue
