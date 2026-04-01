@@ -117,3 +117,10 @@ def test_find_free_port_falls_back_when_stuck():
         assert result != preferred, f"Should have fallen back, but got preferred {preferred}"
     finally:
         blocker.close()
+
+
+def test_restart_watchdog_waits_for_uvicorn_exit():
+    source = _read("server.py")
+    assert "_uvicorn_exited = threading.Event()" in source
+    assert "_uvicorn_exited.wait(timeout=force_exit_timeout_sec)" in source
+    assert "_uvicorn_exited.set()" in source

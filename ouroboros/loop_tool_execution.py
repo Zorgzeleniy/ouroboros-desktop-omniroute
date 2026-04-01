@@ -121,6 +121,20 @@ def _truncate_tool_result(
     return s[:limit] + f"\n... (truncated from {len(s)} chars, limit={limit})"
 
 
+def _is_tool_execution_failure(tool_ok: bool, result: Any) -> bool:
+    """Classify only executor/runtime failures as tool failures.
+
+    Many tools intentionally return warning-style results such as
+    ``REVIEW_BLOCKED`` or ``GIT_ERROR``. Those should be shown to the model and
+    user as normal completed tool results, not surfaced in the UI as "tool
+    failed". The hard failure bucket is reserved for executor-level failures:
+    parsing errors, timeouts, and uncaught tool exceptions.
+    """
+    if not tool_ok:
+        return True
+    return str(result or "").startswith("⚠️ TOOL_")
+
+
 def _execute_single_tool(
     tools: ToolRegistry,
     tc: Dict[str, Any],
@@ -169,7 +183,7 @@ def _execute_single_tool(
         "result_preview": sanitize_tool_result_for_log(truncate_for_log(result, 2000)),
     })
 
-    is_error = (not tool_ok) or str(result).startswith("⚠️")
+    is_error = _is_tool_execution_failure(tool_ok, result)
 
     return {
         "tool_call_id": tool_call_id,

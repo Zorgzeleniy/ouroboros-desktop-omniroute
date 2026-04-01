@@ -980,6 +980,7 @@ def main() -> int:
         ws_ping_timeout=20,
     )
     server = uvicorn.Server(config)
+    _uvicorn_exited = threading.Event()
 
     def _check_restart():
         """Monitor for restart signal, then shut down uvicorn."""
@@ -1006,14 +1007,25 @@ def main() -> int:
 
         server.should_exit = True
 
-        # Safety net: if uvicorn doesn't exit within 5 seconds, force it
-        time.sleep(5)
-        log.warning("Uvicorn did not exit within 5s — forcing os._exit(%d)", RESTART_EXIT_CODE)
+        # Safety net: only force-exit if uvicorn itself never returns control.
+        # In direct-server mode, the main thread still needs time to run cleanup
+        # and re-exec the process after server.run() exits.
+        force_exit_timeout_sec = 5 if _LAUNCHER_MANAGED else 30
+        if _uvicorn_exited.wait(timeout=force_exit_timeout_sec):
+            return
+        log.warning(
+            "Uvicorn did not exit within %ss — forcing os._exit(%d)",
+            force_exit_timeout_sec,
+            RESTART_EXIT_CODE,
+        )
         os._exit(RESTART_EXIT_CODE)
 
     threading.Thread(target=_check_restart, daemon=True).start()
 
-    server.run()
+    try:
+        server.run()
+    finally:
+        _uvicorn_exited.set()
 
     if _restart_requested.is_set():
         log.info("Exiting with code %d (restart signal).", RESTART_EXIT_CODE)

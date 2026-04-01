@@ -121,3 +121,9 @@ def test_format_messages_for_safety_marks_omission():
 
     assert "[..." in output
     assert "chars omitted" in output
+
+
+def test_repo_commit_is_deterministically_whitelisted():
+    from ouroboros.safety import _is_whitelisted
+
+    assert _is_whitelisted("repo_commit", {"commit_message": "fix: test"})

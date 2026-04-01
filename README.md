@@ -6,7 +6,7 @@
 [![macOS 12+](https://img.shields.io/badge/macOS-12%2B-black.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
 [![Linux](https://img.shields.io/badge/Linux-x86__64-orange.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
 [![Windows](https://img.shields.io/badge/Windows-x64-blue.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
-[![Version 4.7.1](https://img.shields.io/badge/version-4.7.1-green.svg)](VERSION)
+[![Version 4.7.2](https://img.shields.io/badge/version-4.7.2-green.svg)](VERSION)
 
 A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026.
 
@@ -369,6 +369,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 4.7.2 | 2026-04-01 | Reliability hardening release: whitelist `repo_commit` in safety checks, let restart continue on `git fetch` failure by falling back to local reset, wait for uvicorn shutdown before forced restart exit, and classify handled review/git warnings as normal tool results instead of UI-level “tool failed” executor errors. |
 | 4.7.1 | 2026-04-01 | Fix restart reconnect: `find_free_port` now retries the preferred port up to 10s before falling back to a nearby port, preventing silent port drift that left the WebSocket frontend stuck in "Reconnecting" mode. |
 | 4.7.0 | 2026-03-22 | Provider-and-UI overhaul release: add multi-provider model routing (OpenRouter, OpenAI, OpenAI-compatible, Cloud.ru), official-OpenAI auto-default migration plus OpenAI-only review fallback, multi-step onboarding with first-step multi-key entry and visible model review, desktop-first Settings redesign with searchable model pickers and explicit secret clearing, Telegram bridge with bidirectional text/actions/photos/chat binding, one expandable live task card in Chat, grouped task cards in Logs, and intentional external-symlink full CRUD semantics in the Files tab while preserving explicit network root and root-delete protection. |
 | 4.6.0 | 2026-03-22 | Files and network runtime release: add the Web UI Files tab with extracted backend routes, bounded preview/upload behavior, root-delete protection, encoded image preview URLs, and safer path containment; add minimal password gate for non-localhost browser/API access; add source/docker host+port entrypoint support with repo-shaped Docker runtime and explicit file-root configuration for network mode. |

@@ -188,9 +188,13 @@ def _run_pre_push_tests(ctx: ToolContext) -> Optional[str]:
 def _git_commit_with_tests(ctx: ToolContext) -> Optional[str]:
     test_error = _run_pre_push_tests(ctx)
     if test_error:
-        log.error("Tests failed, blocking commit")
+        log.error("Post-commit verification failed")
         ctx.last_push_succeeded = False
-        return f"⚠️ TESTS_FAILED: Tests failed, commit blocked.\n{test_error}\nFix tests and commit manually."
+        return (
+            "⚠️ TESTS_FAILED: Post-commit verification failed.\n"
+            f"{test_error}\n"
+            "The commit was already created and preserved. Inspect the failures before relying on this revision."
+        )
     return None
 
 

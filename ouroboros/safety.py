@@ -44,7 +44,7 @@ def _is_whitelisted(tool_name: str, arguments: Dict[str, Any]) -> bool:
     if tool_name in ("data_write",):
         return True
 
-    if tool_name in ("repo_write", "repo_write_commit", "claude_code_edit"):
+    if tool_name in ("repo_write", "repo_write_commit", "repo_commit", "claude_code_edit"):
         return True
 
     if tool_name == "run_shell":
