@@ -6,7 +6,7 @@
 [![macOS 12+](https://img.shields.io/badge/macOS-12%2B-black.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
 [![Linux](https://img.shields.io/badge/Linux-x86__64-orange.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
 [![Windows](https://img.shields.io/badge/Windows-x64-blue.svg)](https://github.com/joi-lab/ouroboros-desktop/releases)
-[![Version 4.7.9](https://img.shields.io/badge/version-4.7.9-green.svg)](VERSION)
+[![Version 4.10.5](https://img.shields.io/badge/version-4.10.5-green.svg)](VERSION)
 
 A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026.
 
@@ -248,6 +248,7 @@ Ouroboros
 │   ├── pricing.py          — Model pricing, cost estimation
 │   ├── review.py           — Code review pipeline and repo inspection
 │   ├── reflection.py       — Execution reflection and pattern capture
+│   ├── tool_capabilities.py — SSOT for tool sets (core, parallel, truncation)
 │   ├── consciousness.py    — Background thinking loop
 │   ├── owner_inject.py     — Per-task creator message mailbox
 │   ├── safety.py           — Dual-layer LLM security supervisor
@@ -298,9 +299,10 @@ All keys are configured through the **Settings** page in the UI or during the fi
 | Light | `anthropic/claude-sonnet-4.6` | Safety checks, consciousness, fast tasks |
 | Fallback | `anthropic/claude-sonnet-4.6` | When primary model fails |
 | Claude Code CLI | `opus` | Anthropic model for Claude Code CLI tools |
+| Scope Review | `anthropic/claude-opus-4.6` | Blocking scope reviewer (single-model, after triad review) |
 | Web Search | `gpt-5.2` | OpenAI Responses API for web search |
 
-Task/chat reasoning defaults to `medium`.
+Task/chat reasoning defaults to `medium`. Scope review reasoning defaults to `high`.
 
 Models are configurable in the Settings page. Runtime model slots can target OpenRouter, official OpenAI, OpenAI-compatible endpoints, or Cloud.ru. Anthropic remains scoped to the existing Claude Code CLI flow. When only official OpenAI is configured and the shipped default model values are still untouched, Ouroboros auto-remaps them to official OpenAI defaults. In that same OpenAI-only mode, review-model lists are normalized automatically and fall back to running the main model three times if no valid multi-model remote quorum is configured.
 
@@ -369,6 +371,21 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 4.10.5 | 2026-04-02 | Fix a local-dev supervisor regression from the startup-cleanup refactor: `_run_supervisor` now keeps `safe_restart` bound in its event context, and a regression test locks that contract in place. |
+| 4.10.4 | 2026-04-02 | Disable startup auto-rescue commits outside launcher-managed mode: local-dev `python server.py` still warns on dirty worktrees, but it no longer creates surprise `auto-rescue` commits while booting. 2 new regression tests. |
+| 4.10.3 | 2026-04-02 | Fix restart resilience and local-dev safety: `find_free_port()` now retries the fallback range instead of returning a known-busy preferred port, and non-launcher `python server.py` no longer runs bootstrap `safe_restart()` / `git reset --hard` against an editable worktree. 4 new regression tests. |
+| 4.10.2 | 2026-04-02 | Prompt cache Phase 1: add `seal_task_transcript()` to `loop.py` — seals one stable tool-result boundary with `cache_control` before each LLM call; rotates and reverts the seal each round so compaction always sees plain strings; non-Anthropic/local paths strip `cache_control` in `llm.py` and are unaffected. 12 new tests. |
+| 4.10.1 | 2026-04-01 | Fix: tool discovery path (`list_available_tools`) now uses SSOT from `tool_capabilities.py` via `tool_policy`, instead of `registry.py`'s stale local `CORE_TOOL_NAMES`. Previously, discovery would incorrectly show core tools as additional and hide non-core tools. 2 new drift-detection tests. |
+| 4.10.0 | 2026-04-01 | Tool-layer SSOT and code search: new `tool_capabilities.py` module is the single source of truth for all tool classification sets (core, parallel-safe, truncation, browser); `tool_policy.py` and `loop_tool_execution.py` import from it instead of maintaining local copies; new `code_search` tool for first-class code search without `run_shell` (literal/regex, bounded, skips binaries/caches); `run_shell` now rejects `cmd` as a plain string with a clear error instead of silently recovering; SYSTEM.md updated with explicit tool usage guidelines. |
+| 4.9.2 | 2026-04-01 | Tighten review_rebuttal guidance: agent now prefers implementing reviewer findings over arguing; rebuttal reserved for factually wrong findings only; 5+ attempt hint directs to split or escalate instead of retry loops. |
+| 4.9.1 | 2026-04-01 | Configurable scope review: scope review model (`OUROBOROS_SCOPE_REVIEW_MODEL`, default opus-4.6) and reasoning effort (`OUROBOROS_EFFORT_SCOPE_REVIEW`, default high) now configurable in Settings UI and `config.py`; 2 new tests for env-driven scope model/effort configuration. |
+| 4.9.0 | 2026-04-01 | Review stack upgrade: blocking scope reviewer (opus, fail-closed) checks completeness/forgotten touchpoints after triad review; triad review now sees full current touched-file content (not just diff); advisory review uses precise checklist section loader, includes touched-file pack, removes blind truncation; `goal` and `scope` params added to `repo_commit` and `advisory_pre_review` for intent-aware review; snapshot hash decoupled from commit message (code-content-only freshness); stale lifecycle is now real (previous runs auto-marked stale); new `review_helpers.py` shared module; new `scope_review.py` module; 35 new tests. |
+| 4.8.5 | 2026-04-01 | Inject `runtime_env` (platform + is_desktop flag) into LLM context so the agent knows whether it is running in desktop app vs browser, and which OS platform (darwin/win32/linux). |
+| 4.8.4 | 2026-04-01 | Fix: dead phase names in live card markdown check (`'progress'`/`'thought'` → `'working'`/`'thinking'`); task progress cards now persist after restart by forcing card visibility for historical task_summary messages. |
+| 4.8.3 | 2026-04-01 | Fix: reduce text brightness in user and assistant chat bubbles — opacity lowered from 0.94/0.92 to 0.82/0.80 for a softer, less glaring appearance. |
+| 4.8.2 | 2026-04-01 | Fix: markdown rendering in working bubble headlines — progress/thought lines now use `renderMarkdown` instead of `escapeHtml` for the headline, so bold/italic/etc. display correctly in live task cards. |
+| 4.8.1 | 2026-04-01 | Fix: `advisory_pre_review` now auto-bypasses with durable audit when `ANTHROPIC_API_KEY` is absent, instead of returning an error that permanently blocks `repo_commit`; test coverage added. |
+| 4.8.0 | 2026-04-01 | Advisory pre-review gate: new `advisory_pre_review` tool (read-only Claude Code CLI, model=opus, tools=Read/Grep/Glob) runs BEFORE `repo_commit`; `repo_commit` and `repo_write_commit` block with `ADVISORY_PRE_REVIEW_REQUIRED` if no fresh snapshot-matched run exists; all bypasses durably audited to `events.jsonl`; `review_state.py` manages durable advisory run history; `review_status` tool for diagnostics; advisory findings injected into LLM context; both tools exempt from result truncation and in CORE_TOOL_NAMES. |
 | 4.7.9 | 2026-04-01 | Claude Code reliability release: final task replies and `task_done` now queue before any latched restart request, task summary/reflection no longer block reply delivery, tool timeout changes can be hot-applied via `set_tool_timeout`, `run_shell` now treats non-zero exits as explicit failures with signal metadata, and Claude Code install prefers the official native installer on macOS/Linux before falling back to npm. |
 | 4.7.8 | 2026-04-01 | Render markdown in live card timeline body: replace escapeHtml with renderMarkdown for the body section of live card timeline lines, so bold, italic, lists and other markdown formatting displays correctly in working bubbles. |
 | 4.7.7 | 2026-04-01 | Chat live card polish: active Working/Thinking phase badge pulses with animation; inline typing dots (blue, 3-dot bounce) appear next to the phase badge while a task is running and hide on completion; standalone typing indicator still shows for fast replies before a live card is promoted. |

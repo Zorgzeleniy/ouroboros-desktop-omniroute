@@ -48,3 +48,26 @@ Ouroboros repository.
   If the condition does not apply, write verdict PASS with a short reason
   (e.g. "Not applicable — no code logic change").
 - Items 11-13 are advisory: FAIL produces a warning but does not block.
+
+---
+
+## Intent / Scope Review Checklist
+
+Used by the supplemental blocking scope reviewer.
+This reviewer checks completeness and forgotten touchpoints using richer context
+than the diff-only triad.
+
+| # | item | what to check | severity when FAIL |
+|---|------|---------------|--------------------|
+| 1 | intent_alignment | Does the staged change actually fulfill the intended transformation, not merely touch related files? | critical if the incompleteness is concrete and evidenced; otherwise advisory |
+| 2 | forgotten_touchpoints | Are there specific coupled files, tests, prompts, docs, configs, or sibling paths that must also change? Name the exact file(s) or symbol(s). | critical if a required touchpoint is concretely omitted; otherwise advisory |
+| 3 | cross_surface_consistency | If behavior changed, are adjacent surfaces still consistent: prompts, docs, comments, tool descriptions, automation, or user-visible workflow? | critical if a concrete stale surface leaves the repo internally inconsistent; otherwise advisory |
+| 4 | regression_surface | Does wider repository context show a concrete sibling path, migration edge, or parallel flow that remains broken or incomplete after this change? | critical if it leaves a concrete broken/incomplete path; otherwise advisory |
+| 5 | prompt_doc_sync | If prompts or docs are relevant to the changed behavior, are they still accurate and mutually consistent? | critical if a concrete prompt/doc artifact becomes false or stale; otherwise advisory |
+| 6 | architecture_fit | Does the change solve the class of problem, or is it a narrow patch that leaves the underlying pattern unresolved? | advisory |
+
+### Severity rules
+
+- Any critical FAIL must cite a concrete file, symbol, prompt, doc, test, config, or sibling flow.
+- If the reviewer cannot point to an exact touchpoint, the FAIL must be advisory, not critical.
+- Scope affects only unchanged code outside the diff. The diff itself remains fully reviewable.

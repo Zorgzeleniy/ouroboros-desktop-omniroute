@@ -7,6 +7,16 @@ import pathlib
 import socket
 
 
+def _can_bind_port(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
 def find_free_port(host: str, start: int = 8765, max_tries: int = 10,
                    wait_retries: int = 20, wait_interval: float = 0.5) -> int:
     """Try the preferred port first; wait for it to become free on restart.
@@ -22,27 +32,22 @@ def find_free_port(host: str, start: int = 8765, max_tries: int = 10,
     import time
 
     for attempt in range(wait_retries):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                sock.bind((host, start))
-                return start
-            except OSError:
-                pass
+        if _can_bind_port(host, start):
+            return start
         if attempt < wait_retries - 1:
             time.sleep(wait_interval)
 
-    # Preferred port still busy — scan nearby as last resort
-    for offset in range(1, max_tries):
-        port = start + offset
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                sock.bind((host, port))
-            return port
-        except OSError:
-            continue
-    return start
+    # Preferred port still busy — nearby ports may still be winding down too.
+    # Retry the fallback range instead of returning the original busy port.
+    fallback_ports = range(start + 1, start + max_tries)
+    for attempt in range(wait_retries):
+        for port in fallback_ports:
+            if _can_bind_port(host, port):
+                return port
+        if attempt < wait_retries - 1:
+            time.sleep(wait_interval)
+
+    raise OSError(f"No free port available in range {start}-{start + max_tries - 1}")
 
 
 def parse_server_args(default_host: str, default_port: int) -> argparse.Namespace:

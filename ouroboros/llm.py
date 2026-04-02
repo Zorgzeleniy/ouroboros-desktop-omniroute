@@ -405,12 +405,25 @@ class LLMClient:
 
     @staticmethod
     def _strip_cache_control(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Strip cache_control from message content blocks (OpenRouter/Anthropic-only)."""
+        """Strip cache_control from message content blocks (OpenRouter/Anthropic-only).
+
+        For tool-role messages whose content is a list of blocks, also flattens
+        the content back to a plain string, because OpenAI and compatible providers
+        expect tool content as a string (not an array of blocks).
+        """
         import copy
         cleaned = copy.deepcopy(messages)
         for msg in cleaned:
             content = msg.get("content")
-            if isinstance(content, list):
+            if not isinstance(content, list):
+                continue
+            if msg.get("role") == "tool":
+                # Flatten back to plain string for providers that require it
+                msg["content"] = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in content
+                )
+            else:
                 for block in content:
                     if isinstance(block, dict):
                         block.pop("cache_control", None)
@@ -904,13 +917,22 @@ class LLMClient:
                 tool_use_id = str(msg.get("tool_call_id") or "")
                 if not tool_use_id:
                     raise ValueError("Anthropic direct tool result is missing tool_call_id.")
+                raw_content = msg.get("content")
+                # Anthropic direct API supports list of content blocks (including
+                # cache_control) as tool_result content, so pass through as-is.
+                # For plain strings, pass them directly. Only JSON-serialize
+                # dicts and other non-string non-list values.
+                if isinstance(raw_content, list):
+                    tool_result_content: Any = raw_content
+                else:
+                    tool_result_content = self._stringify_anthropic_content(raw_content)
                 self._coalesce_anthropic_message(
                     anthropic_messages,
                     "user",
                     [{
                         "type": "tool_result",
                         "tool_use_id": tool_use_id,
-                        "content": self._stringify_anthropic_content(msg.get("content")),
+                        "content": tool_result_content,
                     }],
                 )
 
@@ -1064,9 +1086,12 @@ class LLMClient:
         if str(target.get("provider") or "") == "openai" and resolved_model.startswith("gpt-5"):
             token_limit_key = "max_completion_tokens"
         if not target.get("supports_openrouter_extensions"):
+            # Strip cache_control from message content blocks — non-OpenRouter providers
+            # (OpenAI, openai-compatible, Cloud.ru) do not accept this field.
+            clean_messages = self._strip_cache_control(messages)
             kwargs: Dict[str, Any] = {
                 "model": resolved_model,
-                "messages": messages,
+                "messages": clean_messages,
                 token_limit_key: max_tokens,
             }
             if temperature is not None:

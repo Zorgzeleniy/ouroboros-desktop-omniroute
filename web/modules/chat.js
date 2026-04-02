@@ -517,8 +517,9 @@ export function initChat({ ws, state, updateUnreadBadge }) {
             const expanded = expandable && record.expandedLineKeys.has(item.lineKey);
             const displayHeadline = expanded && item.fullHeadline ? item.fullHeadline : item.headline;
             const displayBody = expanded && item.fullBody ? item.fullBody : item.body;
+            const isProgressLine = item.phase === 'working' || item.phase === 'thinking';
             const headContent = `
-                <span class="chat-live-line-title">${escapeHtml(displayHeadline)}</span>
+                <span class="chat-live-line-title">${isProgressLine ? renderMarkdown(displayHeadline) : escapeHtml(displayHeadline)}</span>
                 <span class="chat-live-line-repeat" ${item.count > 1 ? '' : 'hidden'}>${item.count > 1 ? `${item.count}x` : ''}</span>
                 ${item.ts ? `<span class="chat-live-line-time">${escapeHtml(item.ts)}</span>` : ''}
             `;
@@ -850,6 +851,9 @@ export function initChat({ ws, state, updateUnreadBadge }) {
                         if (!taskId) continue;
                         const taskState = getTaskUiState(taskId, true);
                         if (taskState.completed) continue;
+                        // Force the card visible for historical tasks — toolCalls is 0 after
+                        // a restart so revealBufferedCardIfNeeded would otherwise skip it.
+                        taskState.forceCard = true;
                         appendTaskSummaryToLiveCard(msg);
                         continue;
                     }

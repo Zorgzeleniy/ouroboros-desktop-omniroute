@@ -398,6 +398,82 @@ def _str_replace_editor(ctx: ToolContext, path: str, old_str: str, new_str: str)
     )
 
 
+def _check_advisory_freshness(
+    ctx: ToolContext,
+    commit_message: str,
+    skip_advisory_pre_review: bool = False,
+    paths: Optional[List[str]] = None,
+) -> Optional[str]:
+    """Return a blocking error string if no fresh advisory run matches the current snapshot.
+
+    Returns None if the gate passes (fresh run exists, or advisory is skipped).
+    """
+    import pathlib as _pl
+    from ouroboros.review_state import compute_snapshot_hash, load_state, save_state, _utc_now, AdvisoryRunRecord
+    from ouroboros.utils import append_jsonl
+
+    drive_root = _pl.Path(ctx.drive_root)
+    repo_dir = _pl.Path(ctx.repo_dir)
+
+    snapshot_hash = compute_snapshot_hash(repo_dir, commit_message, paths=paths)
+    state = load_state(drive_root)
+
+    if state.is_fresh(snapshot_hash):
+        return None  # gate passes
+
+    if skip_advisory_pre_review:
+        # Explicit bypass: audit it and pass
+        task_id = str(getattr(ctx, "task_id", "") or "")
+        reason = "skip_advisory_pre_review=True passed to repo_commit"
+        try:
+            append_jsonl(ctx.drive_logs() / "events.jsonl", {
+                "ts": _utc_now(),
+                "type": "advisory_pre_review_bypassed",
+                "snapshot_hash": snapshot_hash,
+                "commit_message": commit_message[:200],
+                "bypass_reason": reason,
+                "task_id": task_id,
+            })
+        except Exception:
+            pass
+        bypass_run = AdvisoryRunRecord(
+            snapshot_hash=snapshot_hash,
+            commit_message=commit_message,
+            status="bypassed",
+            ts=_utc_now(),
+            bypass_reason=reason,
+            bypassed_by_task=task_id,
+        )
+        state.add_run(bypass_run)
+        save_state(drive_root, state)
+        return None  # gate passes (audited bypass)
+
+    # Gate blocks: no fresh advisory run for this snapshot
+    latest = state.latest()
+    if latest:
+        latest_info = (
+            f"Latest advisory run: status={latest.status}, "
+            f"hash={latest.snapshot_hash[:12]}, ts={latest.ts[:16]}. "
+            "The snapshot has changed since then (files or commit message differ)."
+        )
+    else:
+        latest_info = "No advisory runs have been recorded yet."
+
+    return (
+        f"⚠️ ADVISORY_PRE_REVIEW_REQUIRED: No fresh advisory run found for this snapshot "
+        f"(hash={snapshot_hash[:12]}).\n"
+        f"{latest_info}\n\n"
+        "Required workflow:\n"
+        "  1. advisory_pre_review(commit_message='your message')\n"
+        "  2. Fix any critical findings\n"
+        "  3. repo_commit(commit_message='your message')\n\n"
+        "To bypass (will be durably audited):\n"
+        "  advisory_pre_review(commit_message='...', skip_advisory_pre_review=True)\n"
+        "  repo_commit(commit_message='...')\n\n"
+        "Or pass skip_advisory_pre_review=True directly to repo_commit (also audited)."
+    )
+
+
 def _repo_write_commit(ctx: ToolContext, path: str, content: str,
                         commit_message: str, skip_tests: bool = False,
                         also_stage: Optional[List[str]] = None) -> str:
@@ -422,10 +498,18 @@ def _repo_write_commit(ctx: ToolContext, path: str, content: str,
             run_cmd(["git", "checkout", ctx.branch_dev], cwd=ctx.repo_dir)
         except Exception as e:
             return f"⚠️ GIT_ERROR (checkout): {_sanitize_git_error(str(e))}"
+        # Write file inside lock so advisory snapshot is accurate
         try:
             write_text(ctx.repo_path(path), content)
         except Exception as e:
             return f"⚠️ FILE_WRITE_ERROR: {e}"
+        advisory_err = _check_advisory_freshness(ctx, commit_message)
+        if advisory_err:
+            return (
+                advisory_err + "\n\n"
+                "Note: the file has been written to disk inside the git lock. "
+                "Run advisory_pre_review, fix issues, then repo_commit."
+            )
         try:
             run_cmd(["git", "add", safe_relpath(path)], cwd=ctx.repo_dir)
         except Exception as e:
@@ -464,7 +548,10 @@ def _repo_write_commit(ctx: ToolContext, path: str, content: str,
 def _repo_commit_push(ctx: ToolContext, commit_message: str,
                        paths: Optional[List[str]] = None,
                        skip_tests: bool = False,
-                       review_rebuttal: str = "") -> str:
+                       review_rebuttal: str = "",
+                       skip_advisory_pre_review: bool = False,
+                       goal: str = "",
+                       scope: str = "") -> str:
     """Stage, review, and commit files with unified pre-commit review."""
     ctx.last_push_succeeded = False
     ctx._review_advisory = []
@@ -501,10 +588,38 @@ def _repo_commit_push(ctx: ToolContext, commit_message: str,
         if not status.strip():
             return "⚠️ GIT_NO_CHANGES: nothing to commit."
 
-        review_err = _run_unified_review(ctx, commit_message, review_rebuttal=review_rebuttal)
+        advisory_err = _check_advisory_freshness(ctx, commit_message, skip_advisory_pre_review, paths=paths)
+        if advisory_err:
+            run_cmd(["git", "reset", "HEAD"], cwd=ctx.repo_dir)
+            return advisory_err
+
+        review_err = _run_unified_review(ctx, commit_message, review_rebuttal=review_rebuttal,
+                                          goal=goal, scope=scope)
         if review_err:
             run_cmd(["git", "reset", "HEAD"], cwd=ctx.repo_dir)
             return review_err
+
+        # Scope review (blocking, fail-closed) — runs AFTER triad review
+        try:
+            from ouroboros.tools.scope_review import run_scope_review
+            scope_err = run_scope_review(
+                ctx, commit_message, goal=goal, scope=scope,
+                review_rebuttal=review_rebuttal,
+                review_history=getattr(ctx, '_review_history', []),
+            )
+            if scope_err:
+                run_cmd(["git", "reset", "HEAD"], cwd=ctx.repo_dir)
+                return scope_err
+        except ImportError:
+            log.debug("scope_review module not available — skipping scope gate")
+        except Exception as e:
+            # Scope review is fail-closed: any error blocks
+            run_cmd(["git", "reset", "HEAD"], cwd=ctx.repo_dir)
+            return (
+                f"⚠️ SCOPE_REVIEW_BLOCKED: Scope review failed with error — commit blocked.\n"
+                f"Error: {e}\n"
+                "Fix the issue and retry."
+            )
 
         try:
             run_cmd(["git", "commit", "-m", commit_message], cwd=ctx.repo_dir)
@@ -820,8 +935,9 @@ def get_tools() -> List[ToolEntry]:
         ToolEntry("repo_commit", {
             "name": "repo_commit",
             "description": (
-                "Commit already-changed files. Includes unified pre-commit multi-model review "
-                "before commit, with configurable Advisory/Blocking enforcement."
+                "Commit already-changed files. Requires a fresh advisory_pre_review run first. "
+                "Includes unified pre-commit multi-model review before commit, "
+                "with configurable Advisory/Blocking enforcement, plus blocking scope review."
             ),
             "parameters": {"type": "object", "properties": {
                 "commit_message": {"type": "string"},
@@ -829,6 +945,12 @@ def get_tools() -> List[ToolEntry]:
                 "skip_tests": {"type": "boolean", "default": False, "description": "Skip pre-commit tests."},
                 "review_rebuttal": {"type": "string", "default": "",
                     "description": "If previous commit was blocked by reviewers and you disagree, include counter-argument."},
+                "skip_advisory_pre_review": {"type": "boolean", "default": False,
+                    "description": "Bypass advisory pre-review gate (durably audited). Use only when necessary."},
+                "goal": {"type": "string", "default": "",
+                    "description": "High-level goal of this change. Used by scope reviewer to judge completeness."},
+                "scope": {"type": "string", "default": "",
+                    "description": "Declared scope boundary. Issues outside scope are advisory-only for scope reviewer."},
             }, "required": ["commit_message"]},
         }, _repo_commit_push, is_code_tool=True),
         ToolEntry("git_status", {

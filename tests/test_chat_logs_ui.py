@@ -146,6 +146,17 @@ def test_live_card_timeline_body_renders_markdown():
     assert "escapeHtml(displayBody)" not in source
 
 
+def test_live_card_timeline_headline_renders_markdown_for_progress():
+    """working/thinking phase lines must render their headline with renderMarkdown."""
+    source = _read("web/modules/chat.js")
+    # isProgressLine must check the actual phase values emitted by summarizeChatLiveEvent
+    assert "isProgressLine" in source
+    assert "isProgressLine ? renderMarkdown(displayHeadline)" in source
+    # Must use 'working' and 'thinking' — NOT the dead 'progress'/'thought' names
+    assert "item.phase === 'working' || item.phase === 'thinking'" in source
+    assert "item.phase === 'progress' || item.phase === 'thought'" not in source
+
+
 def test_chat_history_replays_task_summaries_into_live_cards():
     history_source = _read("ouroboros/server_history_api.py")
     chat_source = _read("web/modules/chat.js")
@@ -155,3 +166,19 @@ def test_chat_history_replays_task_summaries_into_live_cards():
     assert "appendTaskSummaryToLiveCard(msg);" in chat_source
     assert "taskId," in chat_source
     assert "if (role !== 'user' && !opts.isProgress && opts.taskId) {" in chat_source
+
+
+def test_chat_history_forces_live_card_for_historical_task_summaries():
+    """Historical task_summary messages must force the live card visible.
+
+    After a restart taskState.toolCalls is 0, so revealBufferedCardIfNeeded
+    would silently skip the card unless forceCard is set before the call.
+    """
+    source = _read("web/modules/chat.js")
+    # forceCard must be set to true immediately before appendTaskSummaryToLiveCard
+    # in the syncHistory loop
+    assert "taskState.forceCard = true;" in source
+    # The force must happen inside the task_summary branch of syncHistory
+    idx_force = source.index("taskState.forceCard = true;")
+    idx_append = source.index("appendTaskSummaryToLiveCard(msg);")
+    assert idx_force < idx_append, "forceCard must be set before appendTaskSummaryToLiveCard"

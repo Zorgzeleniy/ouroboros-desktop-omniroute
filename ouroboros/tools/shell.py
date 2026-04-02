@@ -8,7 +8,6 @@ import os
 import pathlib
 import platform
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -154,57 +153,16 @@ _ENV_REF_PATTERN = re.compile(r'\$(?:\{[A-Z][A-Z0-9_]*\}|[A-Z][A-Z0-9_]*)')
 # ---------------------------------------------------------------------------
 def _run_shell(ctx: ToolContext, cmd, cwd: str = "") -> str:
     if isinstance(cmd, str):
-        raw_cmd = cmd
-        warning = "run_shell_cmd_string"
-        try:
-            parsed = json.loads(cmd)
-            if isinstance(parsed, list):
-                cmd = parsed
-                warning = "run_shell_cmd_string_json_list_recovered"
-            elif isinstance(parsed, str):
-                try:
-                    cmd = shlex.split(parsed)
-                except ValueError:
-                    cmd = parsed.split()
-                warning = "run_shell_cmd_string_json_string_split"
-            else:
-                try:
-                    cmd = shlex.split(cmd)
-                except ValueError:
-                    cmd = cmd.split()
-                warning = "run_shell_cmd_string_json_non_list_split"
-        except json.JSONDecodeError:
-            import ast as _ast
-
-            try:
-                parsed = _ast.literal_eval(cmd)
-                if isinstance(parsed, list):
-                    cmd = [str(x) for x in parsed]
-                    warning = "run_shell_cmd_string_ast_recovered"
-                else:
-                    try:
-                        cmd = shlex.split(cmd)
-                    except ValueError:
-                        cmd = cmd.split()
-                    warning = "run_shell_cmd_string_ast_non_list_split"
-            except (ValueError, SyntaxError):
-                try:
-                    cmd = shlex.split(cmd)
-                except ValueError:
-                    cmd = cmd.split()
-                warning = "run_shell_cmd_string_split_fallback"
-
-        try:
-            append_jsonl(ctx.drive_logs() / "events.jsonl", {
-                "ts": utc_now_iso(),
-                "type": "tool_warning",
-                "tool": "run_shell",
-                "warning": warning,
-                "cmd_preview": truncate_for_log(raw_cmd, 500),
-            })
-        except Exception:
-            log.debug("Failed to log run_shell warning to events.jsonl", exc_info=True)
-            pass
+        return (
+            '⚠️ SHELL_ARG_ERROR: `cmd` must be a JSON array of strings, not a plain string.\n\n'
+            'Correct usage:\n'
+            '  run_shell(cmd=["grep", "-r", "pattern", "path/"])\n'
+            '  run_shell(cmd=["python", "-c", "print(1+1)"])\n\n'
+            'Wrong usage:\n'
+            '  run_shell(cmd="grep -r pattern path/")\n\n'
+            'For reading files, prefer `repo_read` / `data_read`.\n'
+            'For searching code, prefer `code_search`.'
+        )
 
     if not isinstance(cmd, list):
         return "⚠️ SHELL_ARG_ERROR: cmd must be a list of strings."

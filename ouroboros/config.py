@@ -71,11 +71,14 @@ SETTINGS_DEFAULTS = {
     "OUROBOROS_REVIEW_MODELS": "openai/gpt-5.4,google/gemini-3.1-pro-preview,anthropic/claude-opus-4.6",
     # Pre-commit review enforcement: advisory | blocking
     "OUROBOROS_REVIEW_ENFORCEMENT": "advisory",
+    # Scope review: single-model blocking reviewer (runs after triad review)
+    "OUROBOROS_SCOPE_REVIEW_MODEL": "anthropic/claude-opus-4.6",
     # Reasoning effort per task type: none | low | medium | high
     # OUROBOROS_INITIAL_REASONING_EFFORT remains a legacy alias for task/chat.
     "OUROBOROS_EFFORT_TASK": "medium",
     "OUROBOROS_EFFORT_EVOLUTION": "high",
     "OUROBOROS_EFFORT_REVIEW": "medium",
+    "OUROBOROS_EFFORT_SCOPE_REVIEW": "high",
     "OUROBOROS_EFFORT_CONSCIOUSNESS": "low",
     "GITHUB_TOKEN": "",
     "GITHUB_REPO": "",
@@ -127,6 +130,9 @@ def resolve_effort(task_type: str) -> str:
     elif t == "review":
         key = "OUROBOROS_EFFORT_REVIEW"
         default = "medium"
+    elif t in ("scope_review", "scope-review"):
+        key = "OUROBOROS_EFFORT_SCOPE_REVIEW"
+        default = "high"
     elif t == "consciousness":
         key = "OUROBOROS_EFFORT_CONSCIOUSNESS"
         default = "low"
@@ -298,8 +304,10 @@ def apply_settings_to_env(settings: dict) -> None:
         "OUROBOROS_BG_MAX_ROUNDS", "OUROBOROS_BG_WAKEUP_MIN", "OUROBOROS_BG_WAKEUP_MAX",
         "OUROBOROS_EVO_COST_THRESHOLD", "OUROBOROS_WEBSEARCH_MODEL",
         "OUROBOROS_REVIEW_MODELS", "OUROBOROS_REVIEW_ENFORCEMENT",
+        "OUROBOROS_SCOPE_REVIEW_MODEL",
         "OUROBOROS_EFFORT_TASK", "OUROBOROS_EFFORT_EVOLUTION",
-        "OUROBOROS_EFFORT_REVIEW", "OUROBOROS_EFFORT_CONSCIOUSNESS",
+        "OUROBOROS_EFFORT_REVIEW", "OUROBOROS_EFFORT_SCOPE_REVIEW",
+        "OUROBOROS_EFFORT_CONSCIOUSNESS",
         "LOCAL_MODEL_SOURCE", "LOCAL_MODEL_FILENAME",
         "LOCAL_MODEL_PORT", "LOCAL_MODEL_N_GPU_LAYERS", "LOCAL_MODEL_CONTEXT_LENGTH",
         "LOCAL_MODEL_CHAT_FORMAT",

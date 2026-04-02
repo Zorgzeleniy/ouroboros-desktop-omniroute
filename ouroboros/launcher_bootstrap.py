@@ -277,15 +277,34 @@ def commit_bundle_sync(context: BootstrapContext, old_version: str, new_version:
 
 
 def sync_existing_repo_from_bundle(context: BootstrapContext) -> None:
-    """Sync core (safety-critical) files and fill in any missing managed files.
+    """Sync an existing repo from the bundle without clobbering user edits.
 
-    Matches the upstream main-branch launcher behavior: on subsequent launches
-    only the 3 core files are force-synced. Managed paths are copied with
-    overwrite_existing=False so that agent/user edits are never destroyed by a
-    version mismatch between the bundle and the repo.
+    Default behavior is conservative:
+    - always force-sync the 3 protected core files
+    - fill in any missing managed paths
+    - commit only the protected core-file sync
+
+    If the bundle version differs from the repo version *and* the repo is clean,
+    create a backup branch first, then perform a full managed-path overwrite and
+    commit the bundle sync as an explicit upgrade commit.
     """
+    bundle_version = read_version_file(context.bundle_dir)
+    repo_version = read_version_file(context.repo_dir)
+    version_mismatch = bool(bundle_version and repo_version and bundle_version != repo_version)
+    repo_dirty = repo_has_pending_changes(context)
+    backup_branch = ""
+
+    if version_mismatch and not repo_dirty:
+        backup_branch = create_bundle_backup_branch(context, repo_version)
+
     sync_core_files(context)
     sync_bundle_managed_paths(context, overwrite_existing=False)
+
+    if version_mismatch and not repo_dirty and backup_branch:
+        sync_bundle_managed_paths(context, overwrite_existing=True)
+        commit_bundle_sync(context, repo_version, bundle_version)
+        return
+
     commit_synced_files(context)
 
 

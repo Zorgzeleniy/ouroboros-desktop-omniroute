@@ -160,6 +160,81 @@ def _maybe_inject_self_check(
     return True
 
 
+def _extract_plain_text_from_content(content: Any) -> str:
+    """Extract plain text from either a string or a multipart content list."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return str(content) if content is not None else ""
+
+
+def seal_task_transcript(
+    messages: List[Dict[str, Any]],
+    keep_active: int = 5,
+    min_prefix_tokens: int = 2048,
+) -> None:
+    """Seal one stable tool-result message with cache_control to improve prompt cache hits.
+
+    Strategy:
+    - First, revert any previously sealed tool message back to a plain string so
+      compaction and later rounds always see normal content (not stale multipart blocks).
+    - Then identify the last tool-result message that falls BEFORE the active recent
+      window (last `keep_active` tool results). That message is the "seal boundary".
+    - If the token estimate for content up to and including that message exceeds
+      `min_prefix_tokens`, mark it with a multipart cache_control block.
+    - Only one sealed boundary exists at a time. Non-Anthropic paths strip
+      cache_control in llm.py before sending, so they are unaffected.
+
+    Mutates `messages` in-place. Returns None.
+    """
+    # Step 1: revert any previously sealed tool messages to plain strings
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            # Was sealed — flatten back to plain text
+            msg["content"] = _extract_plain_text_from_content(content)
+
+    # Step 2: collect indices of all tool-result messages
+    tool_indices = [
+        i for i, m in enumerate(messages)
+        if m.get("role") == "tool"
+    ]
+    if len(tool_indices) <= keep_active:
+        # Not enough tool rounds for a stable prefix yet
+        return
+
+    # The candidate to seal: last tool result before the active window
+    seal_candidate_idx = tool_indices[-(keep_active + 1)]
+
+    # Step 3: estimate prefix token count up to and including the candidate
+    prefix_text_len = sum(
+        len(_extract_plain_text_from_content(m.get("content", "")))
+        for m in messages[: seal_candidate_idx + 1]
+    )
+    prefix_tokens = prefix_text_len // 4  # rough 4-chars-per-token estimate
+
+    if prefix_tokens < min_prefix_tokens:
+        return
+
+    # Step 4: seal the candidate message
+    candidate = messages[seal_candidate_idx]
+    plain_text = str(candidate.get("content", ""))
+    candidate["content"] = [
+        {
+            "type": "text",
+            "text": plain_text,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
 def _setup_dynamic_tools(tools_registry, tool_schemas, messages):
     """
     Wire tool-discovery handlers onto an existing tool_schemas list.
@@ -364,6 +439,10 @@ def run_llm_loop(
                     int(_compaction_usage.get("completion_tokens") or 0),
                     int(_compaction_usage.get("cached_tokens") or 0))
                 emit_llm_usage_event(event_queue, task_id, _cm, _compaction_usage, _cc, "compaction")
+
+            # Seal one stable tool-result boundary for prompt caching (Anthropic-only path;
+            # non-Anthropic providers strip cache_control in llm.py).
+            seal_task_transcript(messages)
 
             msg, cost = call_llm_with_retry(
                 llm, messages, active_model, tool_schemas, active_effort,

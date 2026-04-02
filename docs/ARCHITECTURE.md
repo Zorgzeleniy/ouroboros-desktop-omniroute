@@ -1,4 +1,4 @@
-# Ouroboros v4.7.9 — Architecture & Reference
+# Ouroboros v4.10.5 — Architecture & Reference
 
 This document describes every component, page, button, API endpoint, and data flow.
 It is the single source of truth for how the system works. Keep it updated.
@@ -48,15 +48,19 @@ server.py (Starlette+uvicorn) ← HTTP + WebSocket on localhost:8765
       ├── local_model_api.py   ← Local model HTTP endpoints
       ├── local_model_autostart.py ← Local model startup helper
       ├── review.py            ← Code collection, complexity metrics, full-codebase review
+      ├── review_state.py      ← Durable advisory pre-review state (advisory_review.json)
       ├── onboarding_wizard.py ← Shared desktop/web onboarding bootstrap + validation
       ├── owner_inject.py      ← Per-task user message mailbox (compat module name)
       ├── reflection.py        ← Execution reflection and pattern capture
       ├── server_history_api.py ← Chat history + cost breakdown endpoints
       ├── server_runtime.py    ← Server startup/onboarding and WebSocket liveness helpers
-      ├── tool_policy.py       ← Tool access policy and gating
+      ├── tool_capabilities.py ← SSOT for tool sets (core, parallel-safe, truncation, browser)
+      ├── tool_policy.py       ← Tool access policy and gating (imports from tool_capabilities)
       ├── utils.py             ← Shared utilities
       ├── world_profiler.py    ← System profile generator (WORLD.md)
       ├── tools/               ← Auto-discovered tool plugins
+      │   ├── review_helpers.py  ← Shared review helpers (section loader, file packs, intent)
+      │   └── scope_review.py   ← Blocking scope reviewer (opus, fail-closed)
       └── compat.py            ← Cross-platform process/path/locking helpers
 ```
 
@@ -258,12 +262,14 @@ Navigation is a left sidebar with 9 pages.
   - OpenAI model values use `openai::...`.
   - OpenAI-compatible model values use `openai-compatible::...`.
   - Cloud.ru model values use `cloudru::...`.
-- **Reasoning Effort**: Four segmented controls for task/chat, evolution, review, and consciousness.
+- **Reasoning Effort**: Five segmented controls for task/chat, evolution, review, scope review, and consciousness.
   Backed by `OUROBOROS_EFFORT_TASK`, `OUROBOROS_EFFORT_EVOLUTION`, `OUROBOROS_EFFORT_REVIEW`,
-  `OUROBOROS_EFFORT_CONSCIOUSNESS`. Loading falls back to legacy `OUROBOROS_INITIAL_REASONING_EFFORT`
-  for task/chat when the new key is absent.
+  `OUROBOROS_EFFORT_SCOPE_REVIEW`, `OUROBOROS_EFFORT_CONSCIOUSNESS`. Loading falls back to legacy
+  `OUROBOROS_INITIAL_REASONING_EFFORT` for task/chat when the new key is absent.
 - **Review Models**: Comma-separated remote model IDs for pre-commit review.
   Backed by `OUROBOROS_REVIEW_MODELS`.
+- **Scope Review Model**: Single model for the blocking scope reviewer.
+  Backed by `OUROBOROS_SCOPE_REVIEW_MODEL` (default `anthropic/claude-opus-4.6`).
 - **OpenAI-only review fallback**: if official OpenAI is the only configured remote runtime and the review list is invalid/underspecified, review falls back to the main model repeated three times.
 - **Review Enforcement**: `Advisory` or `Blocking` for pre-commit review behavior.
   Backed by `OUROBOROS_REVIEW_ENFORCEMENT`. Review always runs in both modes.
@@ -428,12 +434,28 @@ Each iteration (0.5s sleep):
    d. Store task result synchronously; task summary and reflection run off the user-reply critical path
 4. Events flow back to supervisor via event queue
 
+### Tool capability sets (tool_capabilities.py)
+
+Single source of truth for all tool classification sets:
+- **`CORE_TOOL_NAMES`** — tools available from round 1 (no `enable_tools` needed)
+- **`META_TOOL_NAMES`** — discovery tools (`list_available_tools`, `enable_tools`)
+- **`READ_ONLY_PARALLEL_TOOLS`** — safe for concurrent execution in ThreadPoolExecutor
+- **`STATEFUL_BROWSER_TOOLS`** — require thread-sticky executor (Playwright affinity)
+- **`UNTRUNCATED_TOOL_RESULTS`** — tools whose output must never be truncated
+- **`UNTRUNCATED_REPO_READ_PATHS`** — repo files that must stay whole when read
+- **`TOOL_RESULT_LIMITS`** — per-tool output size caps (chars)
+
+`tool_policy.py` and `loop_tool_execution.py` import from this module. The legacy
+copy in `tools/registry.py` (safety-critical, overwritten on restart) is kept for
+backward compatibility but is not the runtime authority.
+
 ### Tool execution (loop.py)
 
 - Pricing/cost estimation logic extracted to `pricing.py` (model pricing table, cost estimation, API key inference, usage event emission)
 - **Per-task soft threshold**: Each task has a soft threshold (default $20, env `OUROBOROS_PER_TASK_COST_USD`). When a task exceeds this, the LLM is asked to wrap up soon. This is a reminder, not a hard stop.
 - **`memory_tools.py`**: Provides `memory_map` (read the metacognitive registry of all data sources) and `memory_update_registry` (add/update entries). Part of the Memory Registry system (v3.16.0).
 - **`tool_discovery.py`**: Provides `list_available_tools` (discover non-core tools) and `enable_tools` (activate extra tools for the current task). Enables dynamic tool set management.
+- **`code_search`** (v4.10.0): First-class code search tool in `tools/core.py`. Literal search by default, regex optional. Skips binaries, caches, vendor dirs. Bounded output (max 200 results, 80K chars). Available from round 1 as a core tool. Replaces the pattern of using `run_shell` with `grep`/`rg` for code search.
 - Core tools always available; extra tools discoverable via `list_available_tools`/`enable_tools`
 - Read-only tools can run in parallel (ThreadPoolExecutor)
 - Browser tools use thread-sticky executor (Playwright greenlet affinity)
@@ -441,9 +463,11 @@ Each iteration (0.5s sleep):
 - Multi-layer safety: hardcoded sandbox (registry.py) → deterministic whitelist → LLM safety supervisor
 - Tool results use explicit per-tool caps with visible truncation markers (`repo_read`/`data_read`/`knowledge_read`/`run_shell`: 80k, default: 15k chars). Cognitive reads (`memory/*`, prompts, BIBLE/docs, commit/review outputs) are exempt from silent clipping.
 - `run_shell` now treats non-zero exits as explicit failed tool outcomes and records exit/signal metadata in the tool trace.
+- `run_shell` rejects `cmd` as a plain string with a clear error (v4.10.0). The `cmd` parameter must always be a JSON array of strings.
 - `set_tool_timeout` persists `OUROBOROS_TOOL_TIMEOUT_SEC` to `settings.json` and hot-applies it without restart.
 - `ensure_claude_cli`, `/api/claude-code/*`, and desktop onboarding all reuse the same Claude Code install/status helpers.
 - Claude Code install remains native-first (`install.sh` → Homebrew on macOS → npm fallback) and `claude_code_edit` still uses the installed CLI afterward.
+- **`seal_task_transcript`** (v4.10.2): called after compaction and before each `call_llm_with_retry`. Marks one stable tool-result boundary with `cache_control: ephemeral` to improve Anthropic prompt cache hits. Reverts all previous seals first so compaction always sees plain strings. Provider handling: OpenRouter (Anthropic models) passes list content blocks through as-is; direct Anthropic path preserves list content for `tool_result` (Anthropic API supports content blocks there); `_strip_cache_control` in `llm.py` now flattens tool-role list content back to a plain string for OpenAI, OpenAI-compatible, Cloud.ru, and local providers.
 - Context compaction kicks in after round 8 (summarizes old tool results)
 
 ### Git tools (tools/git.py + tools/review.py + supervisor/git_ops.py)
@@ -555,6 +579,64 @@ the constitutional guard is that the file itself must remain non-deletable.
 - `build_health_invariants()` is split into focused helpers and now also surfaces recent provider/routing errors plus local context overflows.
 - Local-model path no longer silently slices the live system prompt. It compacts non-core sections explicitly and raises an overflow error if core context still cannot fit.
 
+### Review stack (advisory → triad → scope → commit)
+
+The commit pipeline runs three review stages before creating a git commit:
+
+1. **Advisory pre-review** (`tools/claude_advisory_review.py` + `review_state.py`)
+2. **Triad diff review** (`tools/review.py`)
+3. **Blocking scope review** (`tools/scope_review.py`)
+
+Shared helpers live in `tools/review_helpers.py`: checklist section loader,
+touched-file pack builder, broader repo pack builder, goal/scope resolution.
+
+#### Advisory pre-review gate
+
+- **`advisory_pre_review`** tool: runs a read-only Claude Code CLI review of the current
+  worktree BEFORE `repo_commit`. Permitted tools: `Read`, `Grep`, `Glob` only (no Edit/Bash).
+  Model pinned to `opus`. Prompt includes only the "Repo Commit Checklist" section from
+  CHECKLISTS.md (precise section loader), plus BIBLE.md, DEVELOPMENT.md, touched-file pack,
+  goal/scope sections, git status, and worktree diff.
+- **`review_status`** tool: read-only diagnostic showing the last 5 advisory runs.
+- **`review_state.py`**: durable state. State file: `data/state/advisory_review.json`.
+  Stores last 10 runs. Each run has: `snapshot_hash`, `commit_message`, `status`
+  (fresh/stale/bypassed), `items`, `raw_result` (full, no truncation), audit fields.
+- **Snapshot hash**: deterministic SHA-256 of changed file content digests only.
+  Commit message is NOT part of the hash (decoupled for less brittle freshness).
+  Path-aware: `paths` parameter scopes the hash to specific files.
+- **Stale lifecycle**: when a new fresh run is added, all previous runs with different
+  hashes are automatically marked stale. `mark_all_stale_except()` makes this real.
+- **Goal/scope params**: `advisory_pre_review` accepts optional `goal`, `scope`, `paths`
+  parameters for intent-aware review.
+- **Gate integration**: both `_repo_commit_push` and `_repo_write_commit` check freshness.
+- **Bypass**: `skip_advisory_pre_review=True` — durably audited in `events.jsonl`.
+- **Auto-bypass on missing key**: records a `bypassed` run when `ANTHROPIC_API_KEY` absent.
+- **No-truncation for results**: advisory run results stored in full (no `[:4000]` clipping).
+  Diff is capped at 80K chars with explicit omission note (not silent).
+
+#### Triad diff review (enriched)
+
+- Three models review the staged diff against "Repo Commit Checklist" from CHECKLISTS.md.
+- **Full touched-file context**: reviewers see the complete current content of all changed
+  files (via `build_touched_file_pack`), not just the patch hunks. Omission notes when
+  files are too large or unreadable.
+- **Goal section**: `build_goal_section` provides intended transformation context with
+  precedence: goal > scope > commit_message > fallback. No raw task/chat text.
+- Enforcement configurable: `blocking` or `advisory`.
+
+#### Blocking scope review
+
+- **Module**: `tools/scope_review.py`. Single-model (configurable via `OUROBOROS_SCOPE_REVIEW_MODEL`, default `anthropic/claude-opus-4.6`). Reasoning effort via `OUROBOROS_EFFORT_SCOPE_REVIEW` (default `high`).
+- **Fail-closed**: timeout, parse error, API failure, or incomplete context all block.
+- **Role**: completeness, forgotten touchpoints, cross-surface consistency, incomplete
+  migrations, intent mismatch. NOT a duplicate of line-by-line diff review.
+- **Prompt includes**: "Intent / Scope Review Checklist" from CHECKLISTS.md, touched-file
+  pack, broader repo pack (all tracked files minus touched), goal/scope sections,
+  DEVELOPMENT.md, staged diff, review history.
+- **Broader repo pack**: best-effort, up to 500K chars. Excludes touched files.
+- Runs AFTER triad review, BEFORE `git commit`.
+- Respects review enforcement setting (blocking/advisory).
+
 ### Deep review (review.py)
 
 - As of v3.16.1, the review task includes an explicit Constitution (BIBLE.md) compliance mandate as the highest-priority review criterion.
@@ -606,9 +688,11 @@ Settings file: `~/Ouroboros/data/settings.json`. File-locked for concurrent acce
 | OUROBOROS_WEBSEARCH_MODEL | gpt-5.2 | Official OpenAI Responses model for `web_search` when `OPENAI_BASE_URL` is empty |
 | OUROBOROS_REVIEW_MODELS | openai/gpt-5.4,google/gemini-3.1-pro-preview,anthropic/claude-opus-4.6 | Comma-separated OpenRouter model IDs for pre-commit review (min 2 for quorum) |
 | OUROBOROS_REVIEW_ENFORCEMENT | blocking | Pre-commit review enforcement: `advisory` or `blocking` |
+| OUROBOROS_SCOPE_REVIEW_MODEL | anthropic/claude-opus-4.6 | Single model for the blocking scope reviewer |
 | OUROBOROS_EFFORT_TASK | medium | Reasoning effort for task/chat: none, low, medium, high |
 | OUROBOROS_EFFORT_EVOLUTION | high | Reasoning effort for evolution tasks |
 | OUROBOROS_EFFORT_REVIEW | medium | Reasoning effort for review tasks |
+| OUROBOROS_EFFORT_SCOPE_REVIEW | high | Reasoning effort for blocking scope review |
 | OUROBOROS_EFFORT_CONSCIOUSNESS | low | Reasoning effort for background consciousness |
 | OUROBOROS_SOFT_TIMEOUT_SEC | 600 | Soft timeout warning (10 min) |
 | OUROBOROS_HARD_TIMEOUT_SEC | 1800 | Hard timeout kill (30 min) |

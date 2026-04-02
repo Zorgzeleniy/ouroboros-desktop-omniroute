@@ -63,3 +63,17 @@ def test_self_check_returns_bool_and_interval_15():
     assert _maybe_inject_self_check(14, 200, messages, usage, progress_calls.append) is False
     assert _maybe_inject_self_check(15, 200, messages, usage, progress_calls.append) is True
     assert "CHECKPOINT" in messages[0]["content"]
+
+
+def test_advisory_pre_review_results_never_truncated():
+    """advisory_pre_review results must not be truncated (full JSON needed)."""
+    from ouroboros.loop_tool_execution import _truncate_tool_result
+    big = "a" * 90000
+    assert _truncate_tool_result(big, "advisory_pre_review") == big
+
+
+def test_review_status_results_never_truncated():
+    """review_status results must not be truncated (full JSON needed)."""
+    from ouroboros.loop_tool_execution import _truncate_tool_result
+    big = "b" * 90000
+    assert _truncate_tool_result(big, "review_status") == big

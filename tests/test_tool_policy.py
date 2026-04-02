@@ -38,3 +38,17 @@ def test_loop_bootstraps_from_tool_policy():
     source = inspect.getsource(loop_mod)
     assert "initial_tool_schemas(tools)" in source
     assert "schemas(core_only=True)" not in source
+
+
+def test_advisory_tools_in_core_tool_names():
+    """advisory_pre_review and review_status must be core tools."""
+    assert "advisory_pre_review" in CORE_TOOL_NAMES
+    assert "review_status" in CORE_TOOL_NAMES
+
+
+def test_advisory_tools_in_initial_schemas():
+    """advisory_pre_review and review_status must appear in initial tool schemas."""
+    registry = _build_registry()
+    names = {schema["function"]["name"] for schema in initial_tool_schemas(registry)}
+    assert "advisory_pre_review" in names
+    assert "review_status" in names

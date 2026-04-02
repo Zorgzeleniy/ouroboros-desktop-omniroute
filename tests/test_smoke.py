@@ -32,6 +32,7 @@ CORE_MODULES = [
     "ouroboros.review",
     "ouroboros.utils",
     "ouroboros.consciousness",
+    "ouroboros.tool_capabilities",
 ]
 
 TOOL_MODULES = [
@@ -43,6 +44,9 @@ TOOL_MODULES = [
     "ouroboros.tools.control",
     "ouroboros.tools.browser",
     "ouroboros.tools.review",
+    "ouroboros.tools.claude_advisory_review",
+    "ouroboros.tools.scope_review",
+    "ouroboros.tools.review_helpers",
 ]
 
 SUPERVISOR_MODULES = [
@@ -106,6 +110,8 @@ EXPECTED_TOOLS = [
     "list_github_issues", "get_github_issue", "comment_on_issue",
     "close_github_issue", "create_github_issue",
     "summarize_dialogue",
+    # Code search
+    "code_search",
     # Task decomposition
     "get_task_result", "wait_for_task",
     "generate_evolution_stats",
@@ -117,6 +123,8 @@ EXPECTED_TOOLS = [
     "compact_context",
     "list_available_tools",
     "enable_tools",
+    # Advisory pre-review gate
+    "advisory_pre_review", "review_status",
 ]
 
 
@@ -148,7 +156,7 @@ def test_tool_schemas_valid(registry):
 
 def test_tool_execute_basic(registry):
     """Actually execute a simple tool to verify execution works."""
-    result = registry.execute("run_shell", {"cmd": "echo hello"})
+    result = registry.execute("run_shell", {"cmd": ["echo", "hello"]})
     assert isinstance(result, str), "Tool execute should return string"
     assert "hello" in result.lower() or "⚠️" in result, "Should return output or error"
 

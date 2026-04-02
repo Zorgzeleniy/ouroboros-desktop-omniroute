@@ -1,7 +1,5 @@
-"""Tests for shell tool arg recovery (shlex fallback, ast.literal_eval fallback)."""
-import ast
+"""Tests for shell tool arg contract and Claude Code CLI helpers."""
 import inspect
-import shlex
 from subprocess import CompletedProcess
 from types import SimpleNamespace
 
@@ -17,37 +15,27 @@ from ouroboros.tools.shell import (
 )
 
 
-class TestShellArgRecovery:
-    """run_shell should recover from various LLM argument format errors."""
+class TestShellArgContract:
+    """run_shell must reject string cmd with a clear error (v4.10.0+)."""
 
-    def test_shlex_recovery_present(self):
+    def test_string_cmd_returns_hard_error(self):
+        """Passing cmd as a plain string must return SHELL_ARG_ERROR, not recover."""
+        ctx = SimpleNamespace(repo_dir="/tmp", drive_logs=lambda: __import__("pathlib").Path("/tmp"))
+        result = _run_shell(ctx, "echo hello")
+        assert "SHELL_ARG_ERROR" in result
+        assert "JSON array" in result
+
+    def test_string_cmd_suggests_code_search(self):
+        """Error message for string cmd should mention code_search as alternative."""
+        ctx = SimpleNamespace(repo_dir="/tmp", drive_logs=lambda: __import__("pathlib").Path("/tmp"))
+        result = _run_shell(ctx, "grep -r pattern path/")
+        assert "code_search" in result
+
+    def test_list_cmd_is_accepted(self):
+        """List cmd should not trigger arg error."""
         src = inspect.getsource(_run_shell)
-        assert "shlex.split" in src
-
-    def test_ast_recovery_present(self):
-        src = inspect.getsource(_run_shell)
-        assert "ast" in src
-        assert "literal_eval" in src
-
-    def test_ast_recovery_logged(self):
-        src = inspect.getsource(_run_shell)
-        assert "run_shell_cmd_string_ast_recovered" in src
-
-    def test_ast_literal_eval_handles_single_quoted_lists(self):
-        """ast.literal_eval can parse Python lists that json.loads rejects."""
-        raw = "['git', 'status']"
-        result = ast.literal_eval(raw)
-        assert result == ['git', 'status']
-
-    def test_ast_literal_eval_handles_invalid_json_escapes(self):
-        r"""ast.literal_eval handles strings like \| that break json.loads."""
-        import json
-        raw = r'["grep", "-E", "pattern\|alt"]'
-        with pytest.raises(json.JSONDecodeError):
-            json.loads(raw)
-        result = ast.literal_eval(raw)
-        assert len(result) == 3
-        assert "pattern" in result[2]
+        # The function should proceed past the string check for list cmds
+        assert "isinstance(cmd, list)" in src or "not isinstance(cmd, list)" in src
 
 
 def test_run_shell_rejects_literal_env_refs_in_argv(tmp_path):

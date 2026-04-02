@@ -1,9 +1,11 @@
 import asyncio
+import inspect
 import importlib
 import json
 import os
 import pathlib
 import sys
+import types
 
 import pytest
 
@@ -184,6 +186,74 @@ def test_launcher_marks_server_as_managed():
     launcher_source = (pathlib.Path(__file__).resolve().parents[1] / "launcher.py").read_text(encoding="utf-8")
 
     assert 'env["OUROBOROS_MANAGED_BY_LAUNCHER"] = "1"' in launcher_source
+
+
+def test_local_dev_bootstrap_skips_safe_restart(monkeypatch, tmp_path):
+    server_module = _reload_server(monkeypatch, tmp_path)
+    calls = []
+
+    fake_git_ops = types.SimpleNamespace(
+        init=lambda **kwargs: calls.append(("init", kwargs)),
+        ensure_repo_present=lambda: calls.append("ensure_repo_present"),
+        safe_restart=lambda **kwargs: calls.append(("safe_restart", kwargs)) or (True, "unexpected"),
+        sync_runtime_dependencies=lambda reason: calls.append(("deps", reason)) or (True, "requirements"),
+        import_test=lambda: calls.append("import_test") or {"ok": True, "returncode": 0},
+    )
+
+    monkeypatch.setattr(server_module, "_LAUNCHER_MANAGED", False)
+    monkeypatch.setattr(
+        server_module,
+        "setup_remote_if_configured",
+        lambda settings, log: calls.append(("setup_remote_if_configured", dict(settings))),
+    )
+
+    ok, msg = server_module._bootstrap_supervisor_repo({"TOTAL_BUDGET": 1}, git_ops_module=fake_git_ops)
+
+    assert ok
+    assert msg == "OK: local-dev bootstrap"
+    assert ("deps", "bootstrap_local_dev") in calls
+    assert "import_test" in calls
+    assert not any(isinstance(call, tuple) and call[0] == "safe_restart" for call in calls)
+
+
+def test_launcher_bootstrap_uses_safe_restart(monkeypatch, tmp_path):
+    server_module = _reload_server(monkeypatch, tmp_path)
+    calls = []
+
+    fake_git_ops = types.SimpleNamespace(
+        init=lambda **kwargs: calls.append(("init", kwargs)),
+        ensure_repo_present=lambda: calls.append("ensure_repo_present"),
+        safe_restart=lambda **kwargs: calls.append(("safe_restart", kwargs)) or (True, "OK: ouroboros"),
+        sync_runtime_dependencies=lambda reason: (_ for _ in ()).throw(AssertionError(reason)),
+        import_test=lambda: (_ for _ in ()).throw(AssertionError("import_test should not run")),
+    )
+
+    monkeypatch.setattr(server_module, "_LAUNCHER_MANAGED", True)
+    monkeypatch.setattr(
+        server_module,
+        "setup_remote_if_configured",
+        lambda settings, log: calls.append(("setup_remote_if_configured", dict(settings))),
+    )
+
+    ok, msg = server_module._bootstrap_supervisor_repo({"TOTAL_BUDGET": 1}, git_ops_module=fake_git_ops)
+
+    assert ok
+    assert msg == "OK: ouroboros"
+    assert any(
+        isinstance(call, tuple)
+        and call[0] == "safe_restart"
+        and call[1]["reason"] == "bootstrap"
+        and call[1]["unsynced_policy"] == "rescue_and_reset"
+        for call in calls
+    )
+
+
+def test_run_supervisor_keeps_safe_restart_in_event_context(monkeypatch, tmp_path):
+    server_module = _reload_server(monkeypatch, tmp_path)
+    source = inspect.getsource(server_module._run_supervisor)
+
+    assert "from supervisor.git_ops import safe_restart" in source
+    assert "safe_restart=safe_restart" in source
 
 
 def test_set_tool_timeout_persists_and_applies_immediately(monkeypatch, tmp_path):

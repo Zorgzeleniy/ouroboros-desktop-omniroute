@@ -1,12 +1,14 @@
-"""File tools: repo_read, repo_list, data_read, data_list, data_write, codebase_digest, summarize_dialogue."""
+"""File tools: repo_read, repo_list, data_read, data_list, data_write, code_search, codebase_digest, summarize_dialogue."""
 
 from __future__ import annotations
 
 import ast
+import fnmatch
 import json
 import logging
 import os
 import pathlib
+import re
 import uuid
 from typing import Any, Dict, List, Tuple
 
@@ -137,6 +139,118 @@ def _send_photo(ctx: ToolContext, file_path: str = "", image_base64: str = "",
         "caption": caption or "",
     })
     return "OK: photo queued for delivery to owner."
+
+
+# ---------------------------------------------------------------------------
+# Code search
+# ---------------------------------------------------------------------------
+
+_SEARCH_SKIP_DIRS = frozenset({
+    ".git", "__pycache__", "node_modules", ".venv", "venv",
+    ".pytest_cache", ".mypy_cache", ".tox", "build", "dist",
+    ".eggs", ".ruff_cache", "python-standalone", "assets",
+})
+
+_SEARCH_SKIP_GLOBS = frozenset({
+    "*.pyc", "*.pyo", "*.so", "*.dylib", "*.dll", "*.exe",
+    "*.bin", "*.o", "*.a", "*.tar", "*.gz", "*.zip",
+    "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico", "*.webp",
+    "*.woff", "*.woff2", "*.ttf", "*.eot",
+    "*.min.js", "*.min.css", "*.map",
+    "*.db", "*.sqlite", "*.sqlite3",
+    "*.lock",
+})
+
+_MAX_SEARCH_RESULTS = 200
+_MAX_FILE_SIZE_BYTES = 1024 * 1024  # 1 MB — skip huge files
+
+
+def _is_search_skippable(path: pathlib.Path) -> bool:
+    """Return True if the file should be skipped during code search."""
+    name = path.name
+    for glob_pat in _SEARCH_SKIP_GLOBS:
+        if fnmatch.fnmatch(name, glob_pat):
+            return True
+    try:
+        if path.stat().st_size > _MAX_FILE_SIZE_BYTES:
+            return True
+    except OSError:
+        return True
+    return False
+
+
+def _code_search(ctx: ToolContext, query: str, path: str = ".",
+                 regex: bool = False, max_results: int = 200,
+                 include: str = "") -> str:
+    """Search for a pattern in the repository.
+
+    Literal search by default.  Set regex=True for regular expressions.
+    ``path`` scopes the search to a subdirectory (relative to repo root).
+    ``include`` filters by glob pattern (e.g. "*.py").
+    ``max_results`` caps the number of returned matches (default/max 200).
+    """
+    if not query:
+        return "⚠️ SEARCH_ERROR: query is required."
+
+    max_results = min(max(1, max_results), _MAX_SEARCH_RESULTS)
+    root = ctx.repo_dir
+    search_root = (root / safe_relpath(path)).resolve()
+    if not search_root.exists():
+        return f"⚠️ SEARCH_ERROR: path not found: {path}"
+
+    # Compile the pattern
+    try:
+        if regex:
+            pattern = re.compile(query)
+        else:
+            pattern = re.compile(re.escape(query))
+    except re.error as e:
+        return f"⚠️ SEARCH_ERROR: invalid regex: {e}"
+
+    matches: List[str] = []
+    files_searched = 0
+    truncated = False
+
+    for dirpath, dirnames, filenames in os.walk(str(search_root)):
+        # Prune skipped directories in-place
+        dirnames[:] = [d for d in sorted(dirnames) if d not in _SEARCH_SKIP_DIRS]
+
+        for fname in sorted(filenames):
+            fp = pathlib.Path(dirpath) / fname
+
+            # Apply include filter
+            if include and not fnmatch.fnmatch(fname, include):
+                continue
+
+            if _is_search_skippable(fp):
+                continue
+
+            try:
+                text = fp.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+
+            files_searched += 1
+            rel = fp.relative_to(root).as_posix()
+
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if pattern.search(line):
+                    matches.append(f"{rel}:{lineno}: {line.rstrip()}")
+                    if len(matches) >= max_results:
+                        truncated = True
+                        break
+            if truncated:
+                break
+        if truncated:
+            break
+
+    if not matches:
+        return f"No matches found for {'regex' if regex else 'literal'} `{query}` in {path} ({files_searched} files searched)."
+
+    header = f"Found {len(matches)} match{'es' if len(matches) != 1 else ''} ({files_searched} files searched)"
+    if truncated:
+        header += f" — truncated at {max_results} results"
+    return header + "\n\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +550,23 @@ def get_tools() -> List[ToolEntry]:
                 "caption": {"type": "string", "description": "Optional caption for the photo"},
             }, "required": []},
         }, _send_photo),
+        ToolEntry("code_search", {
+            "name": "code_search",
+            "description": (
+                "Search for a pattern in the repository code. "
+                "Literal search by default; set regex=True for regular expressions. "
+                "Scoped to path (default: entire repo). "
+                "Skips binaries, caches, vendor dirs, and files >1MB. "
+                "Returns up to max_results matches (default 200) with file:line: context."
+            ),
+            "parameters": {"type": "object", "properties": {
+                "query": {"type": "string", "description": "Search pattern (literal or regex)"},
+                "path": {"type": "string", "default": ".", "description": "Subdirectory to search (relative to repo root)"},
+                "regex": {"type": "boolean", "default": False, "description": "Treat query as a regular expression"},
+                "max_results": {"type": "integer", "default": 200, "description": "Maximum number of matches to return (max 200)"},
+                "include": {"type": "string", "default": "", "description": "Filter by glob pattern (e.g. '*.py')"},
+            }, "required": ["query"]},
+        }, _code_search),
         ToolEntry("codebase_digest", {
             "name": "codebase_digest",
             "description": "Get a compact digest of the entire codebase: files, sizes, classes, functions. One call instead of many repo_read calls.",

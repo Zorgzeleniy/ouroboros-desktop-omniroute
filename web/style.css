@@ -743,9 +743,9 @@ body {
     white-space: pre-wrap;
 }
 
-.chat-bubble.user .message { color: rgba(239, 246, 255, 0.94); }
-.chat-bubble.assistant .message { color: rgba(255, 228, 232, 0.92); }
-.chat-bubble.system .message { color: rgba(255, 240, 210, 0.9); }
+.chat-bubble.user .message { color: rgba(239, 246, 255, 0.82); }
+.chat-bubble.assistant .message { color: rgba(255, 228, 232, 0.80); }
+.chat-bubble.system .message { color: rgba(255, 240, 210, 0.78); }
 
 .chat-bubble.pending {
     opacity: 0.78;

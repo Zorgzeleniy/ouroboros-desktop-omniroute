@@ -419,6 +419,34 @@ def _process_bridge_updates(bridge, offset: int, ctx: Any) -> int:
     return offset
 
 
+def _bootstrap_supervisor_repo(settings: dict, git_ops_module=None):
+    if git_ops_module is None:
+        from supervisor import git_ops as git_ops_module
+
+    git_ops_module.init(
+        repo_dir=REPO_DIR,
+        drive_root=DATA_DIR,
+        remote_url="",
+        branch_dev="ouroboros",
+        branch_stable="ouroboros-stable",
+    )
+    git_ops_module.ensure_repo_present()
+    setup_remote_if_configured(settings, log)
+
+    if _LAUNCHER_MANAGED:
+        return git_ops_module.safe_restart(reason="bootstrap", unsynced_policy="rescue_and_reset")
+
+    log.info("Local-dev server start detected — skipping bootstrap git reset.")
+    deps_ok, deps_msg = git_ops_module.sync_runtime_dependencies(reason="bootstrap_local_dev")
+    if not deps_ok:
+        return False, f"Failed local-dev deps sync: {deps_msg}"
+
+    import_result = git_ops_module.import_test()
+    if import_result.get("ok"):
+        return True, "OK: local-dev bootstrap"
+    return False, f"Local-dev import test failed (rc={import_result.get('returncode', -1)})"
+
+
 def _run_supervisor(settings: dict) -> None:
     """Initialize and run the supervisor loop. Called in a background thread."""
     global _supervisor_error, _supervisor_thread, _consciousness
@@ -447,14 +475,8 @@ def _run_supervisor(settings: dict) -> None:
         state_init(DATA_DIR, float(settings.get("TOTAL_BUDGET", 10.0)))
         init_state()
 
-        from supervisor.git_ops import init as git_ops_init, ensure_repo_present, safe_restart
-        git_ops_init(
-            repo_dir=REPO_DIR, drive_root=DATA_DIR, remote_url="",
-            branch_dev="ouroboros", branch_stable="ouroboros-stable",
-        )
-        ensure_repo_present()
-        setup_remote_if_configured(settings, log)
-        ok, msg = safe_restart(reason="bootstrap", unsynced_policy="rescue_and_reset")
+        from supervisor.git_ops import safe_restart
+        ok, msg = _bootstrap_supervisor_repo(settings)
         if not ok:
             log.error("Supervisor bootstrap failed: %s", msg)
 

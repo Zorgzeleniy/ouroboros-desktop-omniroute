@@ -20,40 +20,18 @@ from typing import Any, Callable, Dict, List, Optional
 import logging
 
 from ouroboros.config import load_settings
+from ouroboros.tool_capabilities import (
+    READ_ONLY_PARALLEL_TOOLS,
+    STATEFUL_BROWSER_TOOLS,
+    TOOL_RESULT_LIMITS as _TOOL_RESULT_LIMITS,
+    DEFAULT_TOOL_RESULT_LIMIT as _DEFAULT_TOOL_RESULT_LIMIT,
+    UNTRUNCATED_TOOL_RESULTS as _UNTRUNCATED_TOOL_RESULTS,
+    UNTRUNCATED_REPO_READ_PATHS as _UNTRUNCATED_REPO_READ_PATHS,
+)
 from ouroboros.tools.registry import ToolRegistry
 from ouroboros.utils import utc_now_iso, append_jsonl, truncate_for_log, sanitize_tool_args_for_log, sanitize_tool_result_for_log
 
 log = logging.getLogger(__name__)
-
-READ_ONLY_PARALLEL_TOOLS = frozenset({
-    "repo_read", "repo_list",
-    "data_read", "data_list",
-    "web_search", "codebase_digest", "chat_history",
-})
-
-STATEFUL_BROWSER_TOOLS = frozenset({"browse_page", "browser_action"})
-
-_TOOL_RESULT_LIMITS: Dict[str, int] = {
-    "repo_read": 80_000,
-    "data_read": 80_000,
-    "knowledge_read": 80_000,
-    "run_shell": 80_000,
-}
-_DEFAULT_TOOL_RESULT_LIMIT = 15_000
-
-_UNTRUNCATED_TOOL_RESULTS = frozenset({
-    "repo_commit",
-    "repo_write_commit",
-    "multi_model_review",
-})
-
-_UNTRUNCATED_REPO_READ_PATHS = frozenset({
-    "BIBLE.md",
-    "README.md",
-    "docs/ARCHITECTURE.md",
-    "docs/CHECKLISTS.md",
-    "docs/DEVELOPMENT.md",
-})
 
 _FAILURE_PREFIXES = (
     "⚠️ TOOL_",

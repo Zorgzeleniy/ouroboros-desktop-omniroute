@@ -234,6 +234,22 @@ export function renderSettingsPage() {
                                 <div class="settings-inline-note">Comma-separated review models. In direct-provider-only mode, review automatically falls back to repeated runs of the current main model when this list still points elsewhere.</div>
                             </div>
                         </div>
+                        <div class="form-grid two">
+                            <div class="form-field">
+                                <label>Scope Review Model</label>
+                                <input id="s-scope-review-model" placeholder="anthropic/claude-opus-4.6">
+                                <div class="settings-inline-note">Single model for the blocking scope reviewer. Runs after the triad diff review.</div>
+                            </div>
+                            <div class="form-field">
+                                <label>Scope Review Effort</label>
+                                <input type="hidden" id="s-effort-scope-review" value="high">
+                                <div class="segmented-control" data-effort-group data-effort-target="s-effort-scope-review">
+                                    <button type="button" class="segment-btn" data-effort-value="low">Low</button>
+                                    <button type="button" class="segment-btn" data-effort-value="medium">Med</button>
+                                    <button type="button" class="segment-btn active" data-effort-value="high">High</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 

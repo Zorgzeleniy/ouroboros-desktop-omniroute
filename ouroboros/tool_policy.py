@@ -1,36 +1,17 @@
 """Task-start tool visibility policy.
 
-This module is the source of truth for which tools are available at the start
-of a task without an explicit `enable_tools` call.
+This module determines which tools are available at the start of a task
+without an explicit ``enable_tools`` call.
 
-Keep this separate from `ouroboros.tools.registry`: the registry owns tool
-dispatch and the safety sandbox, while this module owns everyday visibility
-policy. That split lets Ouroboros tune the default toolset without editing a
-protected safety-critical file.
+Tool sets are imported from ``ouroboros.tool_capabilities`` (the single
+source of truth).  This module adds the visibility-decision logic on top.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Protocol
 
-
-CORE_TOOL_NAMES = frozenset({
-    "repo_read", "repo_list", "repo_write", "repo_write_commit", "repo_commit", "str_replace_editor",
-    "data_read", "data_list", "data_write",
-    "run_shell", "claude_code_edit",
-    "git_status", "git_diff",
-    "restore_to_head", "revert_commit",
-    "pull_from_remote",
-    "schedule_task", "wait_for_task", "get_task_result",
-    "update_scratchpad", "update_identity",
-    "chat_history", "web_search",
-    "send_user_message", "send_photo", "switch_model",
-    "request_restart", "promote_to_stable",
-    "knowledge_read", "knowledge_write", "knowledge_list",
-    "browse_page", "browser_action", "analyze_screenshot",
-})
-
-META_TOOL_NAMES = frozenset({"list_available_tools", "enable_tools"})
+from ouroboros.tool_capabilities import CORE_TOOL_NAMES, META_TOOL_NAMES
 
 
 class ToolSchemaProvider(Protocol):

@@ -119,6 +119,56 @@ def test_find_free_port_falls_back_when_stuck():
         blocker.close()
 
 
+def test_find_free_port_retries_fallback_range_until_port_frees(monkeypatch):
+    """Fallback scanning should keep retrying instead of returning the busy preferred port."""
+    from ouroboros import server_entrypoint
+
+    preferred = 41000
+    attempts = {preferred: 0, preferred + 1: 0, preferred + 2: 0, preferred + 3: 0}
+
+    def fake_can_bind(_host: str, port: int) -> bool:
+        attempts[port] += 1
+        if port == preferred:
+            return False
+        if port == preferred + 1:
+            return attempts[port] >= 3
+        return False
+
+    monkeypatch.setattr(server_entrypoint, "_can_bind_port", fake_can_bind)
+
+    result = server_entrypoint.find_free_port(
+        "127.0.0.1",
+        preferred,
+        max_tries=4,
+        wait_retries=3,
+        wait_interval=0,
+    )
+
+    assert result == preferred + 1
+    assert attempts[preferred] == 3
+    assert attempts[preferred + 1] == 3
+
+
+def test_find_free_port_raises_when_range_stays_busy(monkeypatch):
+    """find_free_port should fail clearly instead of returning a known-busy port."""
+    from ouroboros import server_entrypoint
+
+    monkeypatch.setattr(server_entrypoint, "_can_bind_port", lambda _host, _port: False)
+
+    try:
+        server_entrypoint.find_free_port(
+            "127.0.0.1",
+            42000,
+            max_tries=3,
+            wait_retries=2,
+            wait_interval=0,
+        )
+    except OSError as exc:
+        assert "42000-42002" in str(exc)
+    else:
+        raise AssertionError("Expected find_free_port to raise when every candidate stays busy")
+
+
 def test_chat_shows_reconnect_banner_after_reconnect_and_reload():
     """chat.js should show reconnect status after both soft reconnect and restart reload."""
     source = _read("web/modules/chat.js")

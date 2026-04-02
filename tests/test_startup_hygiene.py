@@ -48,3 +48,58 @@ def test_memory_ensure_files_generates_world_profile(tmp_path, monkeypatch):
 
     assert calls == [str(memory.world_path())]
     assert memory.world_path().read_text(encoding="utf-8") == "# WORLD\n"
+
+
+def test_check_uncommitted_changes_skips_auto_rescue_outside_launcher(monkeypatch, tmp_path):
+    env = types.SimpleNamespace(
+        repo_dir=tmp_path,
+        repo_path=lambda rel: tmp_path / rel,
+        launcher_managed=False,
+    )
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:3] == ["git", "status", "--porcelain"]:
+            return types.SimpleNamespace(returncode=0, stdout=" M server.py\n")
+        raise AssertionError(cmd)
+
+    monkeypatch.delenv("OUROBOROS_MANAGED_BY_LAUNCHER", raising=False)
+    monkeypatch.setattr(startup_mod.subprocess, "run", fake_run)
+
+    result, issues = startup_mod.check_uncommitted_changes(env)
+
+    assert issues == 1
+    assert result["status"] == "warning"
+    assert result["auto_committed"] is False
+    assert result["auto_rescue_skipped"] == "not_launcher_managed"
+    assert calls == [["git", "status", "--porcelain"]]
+
+
+def test_check_uncommitted_changes_auto_rescue_when_launcher_managed(monkeypatch, tmp_path):
+    env = types.SimpleNamespace(
+        repo_dir=tmp_path,
+        repo_path=lambda rel: tmp_path / rel,
+        branch_dev="ouroboros",
+        launcher_managed=True,
+    )
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:3] == ["git", "status", "--porcelain"]:
+            return types.SimpleNamespace(returncode=0, stdout=" M server.py\n")
+        if cmd[:2] == ["git", "add"]:
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        if cmd[:2] == ["git", "commit"]:
+            return types.SimpleNamespace(returncode=0, stdout="[ouroboros abc123] auto-rescue\n", stderr="")
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(startup_mod.subprocess, "run", fake_run)
+
+    result, issues = startup_mod.check_uncommitted_changes(env)
+
+    assert issues == 1
+    assert result["status"] == "warning"
+    assert result["auto_committed"] is True
+    assert [cmd[:2] for cmd in calls] == [["git", "status"], ["git", "add"], ["git", "commit"]]

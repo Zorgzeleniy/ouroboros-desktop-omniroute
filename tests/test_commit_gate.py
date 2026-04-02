@@ -283,3 +283,270 @@ def test_version_sync_checks_architecture_md():
     source = inspect.getsource(agent_mod.OuroborosAgent._check_version_sync)
     assert "ARCHITECTURE" in source
     assert "architecture_version" in source
+
+
+# ---------------------------------------------------------------------------
+# Advisory pre-review gate (new)
+# ---------------------------------------------------------------------------
+
+def _get_advisory_module():
+    sys.path.insert(0, REPO)
+    return importlib.import_module("ouroboros.tools.claude_advisory_review")
+
+
+def _get_review_state_module():
+    sys.path.insert(0, REPO)
+    return importlib.import_module("ouroboros.review_state")
+
+
+def test_advisory_pre_review_registered():
+    """advisory_pre_review must be registered as a tool."""
+    adv_mod = _get_advisory_module()
+    names = [t.name for t in adv_mod.get_tools()]
+    assert "advisory_pre_review" in names
+
+
+def test_review_status_registered():
+    """review_status must be registered as a tool."""
+    adv_mod = _get_advisory_module()
+    names = [t.name for t in adv_mod.get_tools()]
+    assert "review_status" in names
+
+
+def test_advisory_freshness_check_exists_in_git():
+    """_check_advisory_freshness must be defined in git.py."""
+    git_mod = _get_git_module()
+    assert hasattr(git_mod, "_check_advisory_freshness")
+    assert callable(git_mod._check_advisory_freshness)
+
+
+def test_advisory_gate_in_repo_commit_push():
+    """_repo_commit_push must call _check_advisory_freshness before unified review."""
+    git_mod = _get_git_module()
+    source = inspect.getsource(git_mod._repo_commit_push)
+    assert "_check_advisory_freshness" in source
+    # Advisory gate must come before unified review
+    advisory_pos = source.find("_check_advisory_freshness")
+    review_pos = source.find("_run_unified_review")
+    assert advisory_pos != -1, "_check_advisory_freshness not found in _repo_commit_push"
+    assert review_pos != -1, "_run_unified_review not found in _repo_commit_push"
+    assert advisory_pos < review_pos, "Advisory gate must precede unified review"
+
+
+def test_advisory_gate_in_repo_write_commit():
+    """_repo_write_commit must call _check_advisory_freshness (legacy path not a bypass)."""
+    git_mod = _get_git_module()
+    source = inspect.getsource(git_mod._repo_write_commit)
+    assert "_check_advisory_freshness" in source
+
+
+def test_advisory_freshness_blocks_without_fresh_run(tmp_path):
+    """_check_advisory_freshness must return ADVISORY_PRE_REVIEW_REQUIRED if no fresh run."""
+    import pathlib
+    git_mod = _get_git_module()
+
+    class FakeCtx:
+        repo_dir = tmp_path
+        drive_root = tmp_path
+        task_id = "test-task"
+        def drive_logs(self):
+            logs = tmp_path / "logs"
+            logs.mkdir(parents=True, exist_ok=True)
+            return logs
+
+    # Initialize a bare git repo so compute_snapshot_hash works
+    import subprocess
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+
+    result = git_mod._check_advisory_freshness(FakeCtx(), "test commit message")
+    assert result is not None
+    assert "ADVISORY_PRE_REVIEW_REQUIRED" in result
+
+
+def test_advisory_freshness_passes_with_fresh_run(tmp_path):
+    """_check_advisory_freshness must return None when a fresh run exists."""
+    import subprocess
+    git_mod = _get_git_module()
+    rs_mod = _get_review_state_module()
+
+    # Separate repo_dir and drive_root so drive data doesn't pollute git status
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    drive_root = tmp_path / "drive"
+    drive_root.mkdir()
+    (drive_root / "state").mkdir()
+    (drive_root / "logs").mkdir()
+
+    # Init git repo in repo_dir
+    subprocess.run(["git", "init"], cwd=str(repo_dir), capture_output=True)
+
+    commit_message = "test commit"
+
+    class FakeCtx:
+        pass
+    ctx = FakeCtx()
+    ctx.repo_dir = repo_dir
+    ctx.drive_root = drive_root
+    ctx.task_id = "test-task"
+    ctx.drive_logs = lambda: drive_root / "logs"
+
+    # advisory_review.json is excluded from snapshot hash (see _SNAPSHOT_EXCLUDE_PATHS)
+    # drive_root is outside repo_dir so no git pollution
+    snapshot_hash = rs_mod.compute_snapshot_hash(repo_dir, commit_message)
+
+    # Inject a fresh run with that exact hash
+    state = rs_mod.AdvisoryReviewState()
+    state.add_run(rs_mod.AdvisoryRunRecord(
+        snapshot_hash=snapshot_hash,
+        commit_message=commit_message,
+        status="fresh",
+        ts="2026-01-01T00:00:00",
+    ))
+    rs_mod.save_state(drive_root, state)
+
+    # Hash is stable — drive_root is outside repo_dir, no git status pollution
+    result = git_mod._check_advisory_freshness(ctx, commit_message)
+    assert result is None, f"Expected gate to pass but got: {result}"
+
+
+def test_snapshot_hash_stable_on_message_change(tmp_path):
+    """Snapshot hash must NOT differ when only commit_message changes.
+
+    Hash is now based on code content only (decoupled from commit_message
+    to make freshness less brittle when the message is slightly rephrased).
+    """
+    import subprocess
+    rs_mod = _get_review_state_module()
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+
+    h1 = rs_mod.compute_snapshot_hash(tmp_path, "message A")
+    h2 = rs_mod.compute_snapshot_hash(tmp_path, "message B")
+    assert h1 == h2
+
+
+def test_bypass_is_audited(tmp_path):
+    """Bypassing advisory gate must write advisory_pre_review_bypassed to events.jsonl."""
+    import json
+    import subprocess
+    git_mod = _get_git_module()
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True)
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+    class FakeCtx:
+        repo_dir = tmp_path
+        drive_root = tmp_path
+        task_id = "bypass-task"
+        def drive_logs(self):
+            return tmp_path / "logs"
+
+    result = git_mod._check_advisory_freshness(
+        FakeCtx(), "bypassed commit", skip_advisory_pre_review=True
+    )
+    assert result is None  # bypass passes
+
+    events_path = tmp_path / "logs" / "events.jsonl"
+    assert events_path.exists(), "events.jsonl must exist after bypass"
+    events = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    bypass_events = [e for e in events if e.get("type") == "advisory_pre_review_bypassed"]
+    assert len(bypass_events) == 1, "Exactly one bypass event must be logged"
+    assert bypass_events[0]["task_id"] == "bypass-task"
+
+
+def test_advisory_pre_review_tool_schema_has_skip_param():
+    """advisory_pre_review schema must expose skip_advisory_pre_review param."""
+    adv_mod = _get_advisory_module()
+    tools = adv_mod.get_tools()
+    adv_tool = next(t for t in tools if t.name == "advisory_pre_review")
+    props = adv_tool.schema["parameters"]["properties"]
+    assert "skip_advisory_pre_review" in props
+    assert props["skip_advisory_pre_review"].get("default") is False
+
+
+def test_repo_commit_schema_has_skip_advisory_param():
+    """repo_commit schema must expose skip_advisory_pre_review param."""
+    git_mod = _get_git_module()
+    tools = git_mod.get_tools()
+    commit_tool = next(t for t in tools if t.name == "repo_commit")
+    props = commit_tool.schema["parameters"]["properties"]
+    assert "skip_advisory_pre_review" in props
+
+
+def test_advisory_auto_bypass_on_missing_key(tmp_path, monkeypatch):
+    """advisory_pre_review must auto-bypass with audit when ANTHROPIC_API_KEY is absent."""
+    import json
+    import subprocess
+    adv_mod = _get_advisory_module()
+    rs_mod = _get_review_state_module()
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    drive_root = tmp_path / "drive"
+    drive_root.mkdir()
+    (drive_root / "state").mkdir()
+    (drive_root / "logs").mkdir()
+    subprocess.run(["git", "init"], cwd=str(repo_dir), capture_output=True)
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    progress_calls = []
+
+    class FakeCtx:
+        pass
+    ctx = FakeCtx()
+    ctx.repo_dir = str(repo_dir)
+    ctx.drive_root = str(drive_root)
+    ctx.task_id = "autobypass-task"
+    ctx.drive_logs = lambda: drive_root / "logs"
+    ctx.emit_progress_fn = lambda msg: progress_calls.append(msg)
+
+    result_raw = adv_mod._handle_advisory_pre_review(ctx, commit_message="test commit")
+    result = json.loads(result_raw)
+
+    # Must be bypassed, not errored
+    assert result["status"] == "bypassed"
+    assert "ANTHROPIC_API_KEY" in result["bypass_reason"]
+
+    # Must create a fresh advisory state (bypassed counts as fresh for gate)
+    state = rs_mod.load_state(drive_root)
+    assert state.latest() is not None
+    assert state.latest().status == "bypassed"
+
+    # Must audit bypass to events.jsonl
+    events_path = drive_root / "logs" / "events.jsonl"
+    assert events_path.exists(), "events.jsonl must exist after auto-bypass"
+    events = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    bypass_events = [e for e in events if e.get("type") == "advisory_pre_review_bypassed"]
+    assert len(bypass_events) == 1
+    assert "ANTHROPIC_API_KEY" in bypass_events[0]["bypass_reason"]
+
+
+def test_review_blocked_message_prefers_fix_over_rebuttal():
+    """v4.9.2: REVIEW_BLOCKED message directs agent to fix first, rebuttal only for factual errors."""
+    from ouroboros.tools.review import _build_critical_block_message
+
+    class FakeCtx:
+        _review_iteration_count = 1
+        _review_history = []
+
+    msg = _build_critical_block_message(
+        FakeCtx(), "test commit", ["bible_compliance: violation"], [], ""
+    )
+    assert "factually incorrect" in msg.lower()
+    assert "not to argue" in msg.lower() or "not to argue against" in msg.lower()
+
+
+def test_review_blocked_5plus_hint_suggests_split():
+    """v4.9.2: After 5+ attempts, hint suggests implementing the fix or splitting."""
+    from ouroboros.tools.review import _build_critical_block_message
+
+    class FakeCtx:
+        _review_iteration_count = 5
+        _review_history = []
+
+    msg = _build_critical_block_message(
+        FakeCtx(), "test commit", ["tests_affected: missing tests"], [], ""
+    )
+    assert "split the change" in msg.lower() or "split" in msg.lower()
+    assert "report the blockage" in msg.lower() or "report" in msg.lower()
