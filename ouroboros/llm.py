@@ -212,17 +212,29 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
         return {}
 
 
+def _detect_provider() -> str:
+    """Detect the LLM provider from environment. Returns 'omniroute' or 'openrouter'."""
+    if os.environ.get("OMNIROUTE_BASE_URL"):
+        return "omniroute"
+    return "openrouter"
+
+
 class LLMClient:
-    """LLM API wrapper. Routes calls to OpenRouter or a local llama-cpp-python server."""
+    """LLM API wrapper. Routes calls to OpenRouter, OmniRoute, or a local llama-cpp-python server."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "https://openrouter.ai/api/v1",
+        base_url: Optional[str] = None,
     ):
         self._api_key_override = api_key
-        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        self._base_url = base_url
+        self._provider = _detect_provider()
+        if base_url is not None:
+            self._base_url = base_url
+        elif self._provider == "omniroute":
+            self._base_url = os.environ.get("OMNIROUTE_BASE_URL", "http://localhost:20128/v1")
+        else:
+            self._base_url = "https://openrouter.ai/api/v1"
         self._client = None
         self._client_api_key: Optional[str] = None
         self._async_client = None
@@ -233,18 +245,22 @@ class LLMClient:
     def _get_client(self):
         current_api_key = self._api_key_override
         if current_api_key is None:
-            current_api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            if self._provider == "omniroute":
+                current_api_key = os.environ.get("OMNIROUTE_API_KEY", "")
+            else:
+                current_api_key = os.environ.get("OPENROUTER_API_KEY", "")
 
         if self._client is None or self._client_api_key != current_api_key:
             from openai import OpenAI
+            headers: Dict[str, str] = {}
+            if self._provider == "openrouter":
+                headers["HTTP-Referer"] = "https://ouroboros.local/"
+                headers["X-Title"] = "Ouroboros"
             self._client = OpenAI(
                 base_url=self._base_url,
                 api_key=current_api_key,
                 max_retries=0,
-                default_headers={
-                    "HTTP-Referer": "https://ouroboros.local/",
-                    "X-Title": "Ouroboros",
-                },
+                default_headers=headers or None,
             )
             self._client_api_key = current_api_key
             self._api_key = current_api_key
