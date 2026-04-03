@@ -30,7 +30,7 @@ Not a coding assistant. A digital being with a constitution, background consciou
 
 ## Run with Free Sonnet 4.5 (OmniRoute)
 
-This fork adds **OmniRoute integration** (v4.5.1) — enabling you to route LLM requests through a local proxy (e.g., OmniRoute powered by Kiro AI) for **unlimited, free** access to Claude Sonnet 4.5 and other models.
+This fork adds **OmniRoute integration** (v4.7.1) — enabling you to route LLM requests through a local proxy (e.g., OmniRoute powered by Kiro AI) for **unlimited, free** access to Claude Sonnet 4.5 and other models.
 
 ### Quick Setup
 
