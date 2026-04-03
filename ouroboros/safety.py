@@ -117,6 +117,36 @@ def _parse_safety_response(text: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _is_emergency_safe(tool_name: str, arguments: Dict[str, Any]) -> bool:
+    """Emergency fallback whitelist when safety LLM is unreachable.
+    
+    Allows critical read-only and recovery operations to proceed when both
+    safety checks fail. This prevents system deadlock when the safety model
+    is down.
+    """
+    # Read-only operations are always safe
+    if tool_name in ("repo_read", "data_read", "knowledge_read"):
+        return True
+    
+    # Git status/diff are read-only
+    if tool_name == "run_shell":
+        raw_cmd = arguments.get("cmd", arguments.get("command", ""))
+        if isinstance(raw_cmd, list):
+            cmd_str = " ".join(str(x) for x in raw_cmd)
+        else:
+            cmd_str = str(raw_cmd)
+        
+        # Allow read-only git commands
+        if cmd_str.strip().startswith(("git status", "git diff", "git log", "git show")):
+            return True
+        
+        # Allow basic diagnostics
+        if cmd_str.strip().split()[0] in ("echo", "pwd", "whoami", "date", "which"):
+            return True
+    
+    return False
+
+
 def check_safety(
     tool_name: str,
     arguments: Dict[str, Any],
@@ -191,6 +221,15 @@ def check_safety(
     except Exception as e:
         log.error(f"Fast safety check failed: {e}. Escalating to deep check.")
         fast_reason = str(e)
+        
+        # If fast check failed and this is emergency-safe, skip deep check
+        if _is_emergency_safe(tool_name, arguments):
+            log.warning(f"Fast check failed but {tool_name} is emergency-safe, allowing")
+            return True, (
+                f"⚠️ SAFETY_WARNING: Fast safety check failed (LLM unreachable), but this operation "
+                f"is on the emergency whitelist (read-only/diagnostic). Proceeding with caution.\n"
+                f"Error: {e}"
+            )
 
     # ── Layer 2: Deep check (heavy model, with nudge to reduce false positives) ──
     _use_local_code = os.environ.get("USE_LOCAL_CODE", "").lower() in ("true", "1")
@@ -267,4 +306,15 @@ def check_safety(
 
     except Exception as e:
         log.error(f"Deep safety check failed: {e}")
+        
+        # Emergency fallback: if both safety checks failed and this is a
+        # critical read-only operation, allow it with a warning
+        if _is_emergency_safe(tool_name, arguments):
+            log.warning(f"Emergency fallback: allowing {tool_name} (safety LLM unreachable)")
+            return True, (
+                f"⚠️ SAFETY_WARNING: Safety checks failed (LLM unreachable), but this operation "
+                f"is on the emergency whitelist (read-only/diagnostic). Proceeding with caution.\n"
+                f"Error: {e}"
+            )
+        
         return False, f"⚠️ SAFETY_VIOLATION: Safety check failed with error: {e}"

@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Windows](https://img.shields.io/badge/Windows-x64-blue.svg)](https://github.com/Zorgzeleniy/ouroboros-desktop-omniroute/releases)
-[![Version 4.5.1](https://img.shields.io/badge/version-4.5.1-green.svg)](VERSION)
+[![Version 4.5.2](https://img.shields.io/badge/version-4.5.2-green.svg)](VERSION)
 
 A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026.
 
@@ -146,6 +146,7 @@ With OmniRoute: use proxy-accepted model IDs (e.g., `kr/claude-sonnet-4.5`).
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 4.5.2 | 2026-04-03 | **Safety Agent Deadlock Fix**: Added emergency fallback whitelist to prevent total system paralysis when safety LLM is unreachable. Critical read-only operations (repo_read, data_read, git status/diff) now proceed with warning instead of blocking during provider outages. |
 | 4.5.1 | 2026-04-03 | **OmniRoute + Free Sonnet 4.5**: LLMClient auto-detects `OMNIROUTE_BASE_URL`, routes through proxy instead of OpenRouter. Enables free unlimited model routing via Kiro AI. Added OmniRoute config UI, provider-aware routing, correct header handling. |
 | 4.5.0 | 2026-03-19 | Context quality and prompt discipline: provenance fixes, execution reflections in context, Health Invariants repositioning. |
 | 4.4.0 | 2026-03-19 | Safe editing: `str_replace_editor`, `repo_write` shrink guard, task lifecycle statuses. |
