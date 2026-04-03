@@ -674,6 +674,22 @@ def _run_unified_review(ctx: ToolContext, commit_message: str,
 
     # Quorum: at least 2 of N reviewers must succeed
     successful_reviewers = models_total - len(errored_models)
+    
+    # Emergency fallback: if ALL models failed (0 successful), allow commit with warning
+    # This prevents total paralysis during provider outages (similar to Safety Agent fix)
+    if successful_reviewers == 0:
+        log.warning("All review models failed — emergency fallback allowing commit")
+        blocked_msg = (
+            f"⚠️ REVIEW_WARNING: All {models_total} review models failed to respond. "
+            f"Unavailable: {', '.join(errored_models)}.\n"
+            "Emergency fallback: commit proceeding without review. "
+            "This is a sign of provider outage — verify the changes manually."
+        )
+        _append_review_warning(ctx, blocked_msg)
+        ctx._review_iteration_count = 0
+        ctx._review_history = []
+        return None
+    
     if successful_reviewers < 2:
         blocked_msg = (
             f"⚠️ REVIEW_BLOCKED: Only {successful_reviewers} of {models_total} review "
